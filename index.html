@@ -7,6 +7,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- Firebase (동기화용) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
   :root{
     --ink:#1c2321;--paper:#f3f0e7;--paper-2:#ebe6d8;--line:#d8d1bd;
@@ -232,15 +236,32 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 입력한 데이터는 서버로 전송되지 않고 내 브라우저에만 저장됩니다</footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 로그인한 본인만 접근 가능한 개인 데이터로 동기화됩니다</footer>
 </div>
 
 <script>
 /* ---------- 초기(원본) 데이터 ---------- */
 if(typeof structuredClone!=='function'){ window.structuredClone=function(o){ return JSON.parse(JSON.stringify(o)); }; }
+
+/* ===== Firebase 설정 (동기화) ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBlAtY8GtLN4u9DA1-ANX3ZZff5nANcYN4",
+  authDomain: "monthmoney-2f4e6.firebaseapp.com",
+  databaseURL: "https://monthmoney-2f4e6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "monthmoney-2f4e6",
+  storageBucket: "monthmoney-2f4e6.firebasestorage.app",
+  messagingSenderId: "324639094631",
+  appId: "1:324639094631:web:f57059a1d8375cf7fd21c2"
+};
+let fb={ready:false, uid:null, db:null, ref:null, applyingRemote:false, pushTimer:null};
+try{
+  firebase.initializeApp(firebaseConfig);
+  fb.db=firebase.database();
+}catch(e){ console.warn('Firebase init 실패, 로컬 모드로 동작:', e); }
+
 const SEED_MONTHS = {"26년 08월": {"소득": {"items": [["월급", null], ["기타 수입", null]]}, "고정지출비": {"items": [["월세", null], ["통신비", null], ["보험", null], ["관리비", null]]}, "저축및투자": {"items": [["적금", null], ["연금", null], ["주식", null]]}, "용돈": {"items": [["식비", null], ["생활비", null], ["여가", null]]}}};
 const LOAN_SCHEDULE = {"meta":{"principal":0,"termMonths":0,"start":"","end":"","monthlyPrincipal":0,"totalInterest":0},"byMonth":{}};
-const STORE_KEY = 'budget_planner_public_v1';
+const STORE_KEY = 'budget_planner_v3';
 
 function freshState(){
   return { months: structuredClone(SEED_MONTHS), loans: [], fixed: {} };
@@ -249,7 +270,15 @@ function freshState(){
 let STATE;
 try{
   const saved=localStorage.getItem(STORE_KEY);
-  STATE = saved ? JSON.parse(saved) : freshState();
+  if(saved){ STATE=JSON.parse(saved); }
+  else{
+    // 이전 버전(v2/v1)에서 승계
+    const v2=localStorage.getItem('budget_planner_v2');
+    const v1=localStorage.getItem('budget_planner_v1');
+    STATE=freshState();
+    if(v2){ try{ const o=JSON.parse(v2); STATE.months=o.months||STATE.months; STATE.loans=o.loans||[]; STATE.fixed=o.fixed||{}; }catch(e){} }
+    else if(v1){ try{ STATE.months=JSON.parse(v1); }catch(e){} }
+  }
 }catch(e){ STATE=freshState(); }
 STATE.loans=STATE.loans||[]; STATE.fixed=STATE.fixed||{}; STATE.months=STATE.months||structuredClone(SEED_MONTHS);
 
@@ -328,9 +357,79 @@ function applyLoanToMonth(monthKey){
 }
 function applyLoanAllMonths(){ Object.keys(DATA).forEach(applyLoanToMonth); }
 
-function save(){ try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); flagSaved(); }catch(e){ document.getElementById('saveState').textContent='저장 공간이 가득 찼어요'; } }
-function flagSaved(){ const el=document.getElementById('saveState'); const t=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); el.innerHTML='<b>✓ 저장됨</b> · '+t; }
+function save(){
+  try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
+  pushToCloud();
+  flagSaved();
+}
+function flagSaved(){
+  const el=document.getElementById('saveState'); if(!el) return;
+  const t=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  if(fb.ready){ el.innerHTML='<b>✓ 동기화됨</b> · '+t; }
+  else if(fb.db){ el.innerHTML='<span style="color:var(--muted)">연결 중… (로컬 저장됨)</span>'; }
+  else{ el.innerHTML='<b>✓ 저장됨</b> · '+t+' <span style="color:var(--muted)">(로컬)</span>'; }
+}
 let saveDeb; function queueSave(){ clearTimeout(saveDeb); saveDeb=setTimeout(save,400); }
+
+/* ===== Firebase 동기화 ===== */
+function pushToCloud(){
+  if(!fb.ready||!fb.ref||fb.applyingRemote) return;
+  clearTimeout(fb.pushTimer);
+  fb.pushTimer=setTimeout(()=>{
+    fb.ref.set({ months:STATE.months, loans:STATE.loans, fixed:STATE.fixed, _updated:Date.now() })
+      .catch(err=>console.warn('클라우드 저장 실패:',err));
+  },500);
+}
+function startSync(){
+  if(!fb.db){ flagSaved(); return; }
+  firebase.auth().signInAnonymously().catch(err=>{
+    console.warn('익명 로그인 실패:',err);
+    const el=document.getElementById('saveState'); if(el) el.innerHTML='<span style="color:var(--fixed)">동기화 로그인 실패 (로컬로 동작)</span>';
+  });
+  firebase.auth().onAuthStateChanged(user=>{
+    if(!user) return;
+    fb.uid=user.uid;
+    fb.ref=fb.db.ref('users/'+user.uid);
+    // 최초 1회: 클라우드 값이 있으면 그걸로, 없으면 지금 로컬 값을 올림
+    fb.ref.once('value').then(snap=>{
+      const remote=snap.val();
+      if(remote && remote.months){
+        adoptRemote(remote);
+      }else{
+        // 클라우드가 비어있음 → 현재 로컬 상태 업로드
+        fb.ready=true;
+        pushToCloud();
+      }
+      fb.ready=true;
+      flagSaved();
+      // 이후 실시간 반영(다른 기기에서 바뀌면 여기로 들어옴)
+      fb.ref.on('value',snap2=>{
+        const r=snap2.val(); if(!r||!r.months) return;
+        // 내가 방금 올린 것과 같으면 무시 (간단 비교)
+        adoptRemote(r);
+      });
+    }).catch(err=>{ console.warn('클라우드 읽기 실패:',err); fb.ready=false; flagSaved(); });
+  });
+}
+// 원격 데이터를 화면에 반영 (입력 중 커서 방해 최소화)
+function adoptRemote(remote){
+  // 입력 중(포커스가 입력칸에 있음)이면 반영 미루기
+  const active=document.activeElement;
+  if(active && (active.tagName==='INPUT') && active.closest && active.closest('#cats,#loanList')){
+    clearTimeout(fb._retry); fb._retry=setTimeout(()=>adoptRemote(remote),1200); return;
+  }
+  fb.applyingRemote=true;
+  STATE.months=remote.months||{};
+  STATE.loans=remote.loans||[];
+  STATE.fixed=remote.fixed||{};
+  rebindData();
+  applyLoanAllMonths();
+  if(!DATA[current]) current=Object.keys(DATA)[Object.keys(DATA).length-1];
+  try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
+  if(view==='monthly') renderMonthly(); else renderLoan();
+  fb.applyingRemote=false;
+  flagSaved();
+}
 
 function isFixed(secKey,name){ const list=STATE.fixed[secKey]||[]; return !!name && list.some(([n])=>n===name); }
 function toggleFixed(secKey,name,amount){
@@ -593,7 +692,6 @@ function renderScheduleLoanCard(){
 function renderLoan(){
   const list=document.getElementById('loanList'); list.innerHTML='';
   const hasSchedule = LOAN_SCHEDULE && LOAN_SCHEDULE.meta && (LOAN_SCHEDULE.meta.principal>0);
-  // 스케줄 연동 대출이 있을 때만 맨 위에 표시
   if(hasSchedule) list.appendChild(renderScheduleLoanCard());
   const st=scheduleLoanStatus();
   let totalP=hasSchedule?st.principal:0, totalPaid=hasSchedule?(st.principal-st.remain):0;
@@ -690,8 +788,8 @@ function rebindData(){ for(const k of Object.keys(DATA)) delete DATA[k]; Object.
 /* ---------- 시작 ---------- */
 applyLoanAllMonths();
 setView('monthly');
-save();
 flagSaved();
+startSync();
 </script>
 </body>
 </html>

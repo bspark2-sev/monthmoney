@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v15</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v16-진단</span></footer>
 </div>
 
 <script>
@@ -404,9 +404,9 @@ function stripAuto(months){
   return out;
 }
 function cloudPayloadMonths(){ STATE.months=DATA; return stripAuto(DATA); }
-// ===== 진단용 화면 로그 (기본 꺼짐; 필요시 window.DEBUG_SYNC=true 로 켜기) =====
+// ===== 진단용 화면 로그 (지금은 켜둠 - 문제 확인용) =====
 function dbg(msg){
-  if(!window.DEBUG_SYNC) return;
+  if(window.DEBUG_SYNC===false) return;
   try{
     let box=document.getElementById('dbgLog');
     if(!box){
@@ -454,6 +454,7 @@ function startSync(){
   fb.ref.on('value',snap=>{
     const r=snap.val();
     fb.ready=true;
+    dbg('◆ 리스너 발동 (writer='+(r&&r._writer||'?')+' 달수='+(r&&r.months?Object.keys(r.months).length:0)+')');
     if(!r || !r.months || !Object.keys(r.months).length){
       dbg('← 수신: 클라우드 비어있음');
       if(!fb.gotFirst){ fb.gotFirst=true; pushToCloud(); flagSaved(); }

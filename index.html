@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v16-진단</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v17</span></footer>
 </div>
 
 <script>
@@ -404,9 +404,9 @@ function stripAuto(months){
   return out;
 }
 function cloudPayloadMonths(){ STATE.months=DATA; return stripAuto(DATA); }
-// ===== 진단용 화면 로그 (지금은 켜둠 - 문제 확인용) =====
+// ===== 진단용 화면 로그 (기본 꺼짐; window.DEBUG_SYNC=true 로 켜기) =====
 function dbg(msg){
-  if(window.DEBUG_SYNC===false) return;
+  if(!window.DEBUG_SYNC) return;
   try{
     let box=document.getElementById('dbgLog');
     if(!box){
@@ -429,12 +429,13 @@ const CLIENT_ID = 'c'+Math.random().toString(36).slice(2,7);
 fb.recentWrites = fb.recentWrites || [];
 function pushToCloud(){
   if(!fb.ready||!fb.ref||fb.applyingRemote){ dbg('pushToCloud 건너뜀 (ready='+fb.ready+' applying='+fb.applyingRemote+')'); return; }
-  dbg('  [점검] DATA달수='+Object.keys(DATA).length+' STATE.months달수='+Object.keys(STATE.months).length+' 같은객체='+(DATA===STATE.months));
   const cleanMonths=cloudPayloadMonths();
   const wid=CLIENT_ID+':'+Date.now()+':'+Math.random().toString(36).slice(2,6);
   fb.lastWriteId=wid;
   fb.recentWrites.push(wid); if(fb.recentWrites.length>8) fb.recentWrites.shift();
-  const payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _writer:CLIENT_ID, _writeId:wid, _updated:Date.now() };
+  const now=Date.now();
+  fb.lastSeenT=now; // 내 쓰기가 최신
+  const payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _writer:CLIENT_ID, _writeId:wid, _updated:now };
   dbg('→ 클라우드 전송: 달수='+Object.keys(cleanMonths).length+' wid='+wid.slice(0,14));
   fb.ref.set(payload).then(()=>dbg('  전송 완료 ✓')).catch(err=>dbg('  전송 실패 ✗ '+err));
 }
@@ -454,17 +455,19 @@ function startSync(){
   fb.ref.on('value',snap=>{
     const r=snap.val();
     fb.ready=true;
-    dbg('◆ 리스너 발동 (writer='+(r&&r._writer||'?')+' 달수='+(r&&r.months?Object.keys(r.months).length:0)+')');
+    dbg('◆ 리스너 발동 (writer='+(r&&r._writer||'?')+' 달수='+(r&&r.months?Object.keys(r.months).length:0)+' t='+(r&&r._updated||0)+')');
     if(!r || !r.months || !Object.keys(r.months).length){
       dbg('← 수신: 클라우드 비어있음');
       if(!fb.gotFirst){ fb.gotFirst=true; pushToCloud(); flagSaved(); }
       return;
     }
-    const wid=r._writeId||'(없음)';
-    if(r._writeId && fb.recentWrites.indexOf(r._writeId)>=0){ dbg('← 수신: 내 메아리 무시 (wid='+wid.slice(0,14)+')'); fb.gotFirst=true; flagSaved(); return; }
-    if(fb.gotFirst && sameAsCurrent(r)){ dbg('← 수신: 화면과 동일 → 스킵'); flagSaved(); return; }
+    // 내가 방금 쓴 것(메아리)이면 무시
+    if(r._writeId && fb.recentWrites.indexOf(r._writeId)>=0){ dbg('← 수신: 내 메아리 무시'); fb.gotFirst=true; fb.lastSeenT=r._updated||fb.lastSeenT; flagSaved(); return; }
+    // 이미 화면과 같으면 스킵
+    if(fb.gotFirst && sameAsCurrent(r)){ dbg('← 수신: 화면과 동일 → 스킵'); fb.lastSeenT=r._updated||fb.lastSeenT; flagSaved(); return; }
     dbg('← 수신: 다른 변경 반영 (writer='+(r._writer||'?')+' 달수='+Object.keys(r.months).length+')');
     fb.gotFirst=true;
+    fb.lastSeenT=r._updated||Date.now();
     adoptRemote(r);
     flagSaved();
   }, err=>{ dbg('클라우드 읽기 실패 ✗ '+err); fb.ready=false; flagSaved(); });

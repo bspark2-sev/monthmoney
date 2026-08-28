@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v10</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v11</span></footer>
 </div>
 
 <script>
@@ -403,38 +403,35 @@ function stripAuto(months){
   return out;
 }
 function cloudPayloadMonths(){ return stripAuto(STATE.months); }
+// 이 기기 고유 ID (메아리 판별용)
+const CLIENT_ID = 'c'+Math.random().toString(36).slice(2)+Date.now().toString(36);
 function pushToCloud(){
   if(!fb.ready||!fb.ref||fb.applyingRemote) return;
   const cleanMonths=cloudPayloadMonths();
-  const payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _updated:Date.now() };
-  // 올린 내용(파생 제외)을 기억 → 서버가 되돌려주면 무시(자기 메아리 방지)
-  fb.lastSentSig=JSON.stringify({months:cleanMonths,loans:STATE.loans,fixed:STATE.fixed});
+  fb.lastWriteId=CLIENT_ID+':'+Date.now()+':'+Math.random().toString(36).slice(2);
+  const payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _writer:CLIENT_ID, _writeId:fb.lastWriteId, _updated:Date.now() };
   fb.ref.set(payload).catch(err=>console.warn('클라우드 저장 실패:',err));
 }
 function startSync(){
   if(!fb.db){ flagSaved(); return; }
   // 로그인 없이 한 곳(budget/main)에 저장 — 내 모든 기기가 같은 데이터를 봄
   fb.ref=fb.db.ref('budget/main');
-  // 원칙: 클라우드에 데이터가 있으면 '무조건' 그걸 진짜로 취급한다(앱이 자동으로 덮어쓰지 않음).
-  //       클라우드가 완전히 비어있을 때만, 파일에 심어둔 데이터를 최초 1회 올린다.
-  fb.ref.once('value').then(snap=>{
-    const remote=snap.val();
+  fb.gotFirst=false;
+  // 실시간 리스너 하나로 통일: 처음 값도, 이후 변경도 모두 여기서 처리
+  fb.ref.on('value',snap=>{
+    const r=snap.val();
     fb.ready=true;
-    if(remote && remote.months && Object.keys(remote.months).length){
-      adoptRemote(remote); // 클라우드에 데이터 있음 → 그대로 사용
-    } else {
-      pushToCloud();       // 클라우드가 비어있음 → 최초 업로드
+    // 클라우드가 완전히 비어있으면 → 지금 로컬 데이터를 최초 업로드
+    if(!r || !r.months || !Object.keys(r.months).length){
+      if(!fb.gotFirst){ fb.gotFirst=true; pushToCloud(); flagSaved(); }
+      return;
     }
+    // 내가 방금 쓴 것(메아리)이면 무시 — 쓰기ID로 확실하게 판별
+    if(r._writeId && r._writeId===fb.lastWriteId){ fb.gotFirst=true; flagSaved(); return; }
+    fb.gotFirst=true;
+    adoptRemote(r);   // 다른 기기(또는 최초 로드)의 데이터 → 반영
     flagSaved();
-    // 이후 실시간 반영(다른 기기에서 바뀌면 여기로 들어옴)
-    fb.ref.on('value',snap2=>{
-      const r=snap2.val(); if(!r||!r.months) return;
-      // 파생(자동)항목을 제외한 순수 데이터로 비교 → 내 메아리면 무시
-      const sig=JSON.stringify({months:stripAuto(r.months),loans:r.loans||[],fixed:r.fixed||{}});
-      if(sig===fb.lastSentSig) return;
-      adoptRemote(r);
-    });
-  }).catch(err=>{ console.warn('클라우드 읽기 실패:',err); fb.ready=false; flagSaved(); });
+  }, err=>{ console.warn('클라우드 읽기 실패:',err); fb.ready=false; flagSaved(); });
 }
 // 원격 데이터를 화면에 반영 (입력 중 커서 방해 최소화)
 function adoptRemote(remote){

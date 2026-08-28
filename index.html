@@ -375,7 +375,7 @@ let saveDeb; function queueSave(){ clearTimeout(saveDeb); saveDeb=setTimeout(sav
 /* ===== Firebase 동기화 ===== */
 function pushToCloud(){
   if(!fb.ready||!fb.ref||fb.applyingRemote) return;
-  const payload={ months:STATE.months, loans:STATE.loans, fixed:STATE.fixed, _seedStamp:'restore-2026-08-full', _updated:Date.now() };
+  const payload={ months:STATE.months, loans:STATE.loans, fixed:STATE.fixed, _updated:Date.now() };
   // 내가 올린 내용을 기억해 두었다가, 서버가 그대로 되돌려주면 무시(자기 메아리 방지)
   fb.lastSentSig=JSON.stringify({months:STATE.months,loans:STATE.loans,fixed:STATE.fixed});
   fb.ref.set(payload).catch(err=>console.warn('클라우드 저장 실패:',err));
@@ -384,26 +384,17 @@ function startSync(){
   if(!fb.db){ flagSaved(); return; }
   // 로그인 없이 한 곳(budget/main)에 저장 — 내 모든 기기가 같은 데이터를 봄
   fb.ref=fb.db.ref('budget/main');
-  // 이 파일에 심어둔 '복원 도장' — 클라우드에 이 도장이 없으면, 파일에 담긴 데이터로 한 번 덮어씀
-  const SEED_STAMP='restore-2026-08-full';
-  // 최초 1회: 클라우드 상태 확인
+  // 원칙: 클라우드에 데이터가 있으면 '무조건' 그걸 진짜로 취급한다(앱이 자동으로 덮어쓰지 않음).
+  //       클라우드가 완전히 비어있을 때만, 파일에 심어둔 데이터를 최초 1회 올린다.
   fb.ref.once('value').then(snap=>{
     const remote=snap.val();
     fb.ready=true;
-    if(remote && remote.months && remote._seedStamp===SEED_STAMP){
-      // 이미 복원된 최신 클라우드 → 그대로 사용
+    if(remote && remote.months && Object.keys(remote.months).length){
+      // 클라우드에 데이터 있음 → 그대로 사용 (절대 덮어쓰지 않음)
       adoptRemote(remote);
     } else {
-      // 클라우드가 비어있거나, 예전(8월 유실) 데이터 → 파일에 담긴 완전한 데이터로 올림
-      const fresh=freshState(); // 파일에 심어둔 완전한 데이터(8월 포함)
-      STATE.months=fresh.months; STATE.loans=fresh.loans; STATE.fixed=fresh.fixed;
-      rebindData(); applyLoanAllMonths();
-      current=Object.keys(DATA)[Object.keys(DATA).length-1];
-      try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
-      if(view==='monthly') renderMonthly(); else renderLoan();
-      fb.lastSentSig=JSON.stringify({months:STATE.months,loans:STATE.loans,fixed:STATE.fixed});
-      fb.ref.set({ months:STATE.months, loans:STATE.loans, fixed:STATE.fixed, _seedStamp:SEED_STAMP, _updated:Date.now() })
-        .catch(err=>console.warn('클라우드 저장 실패:',err));
+      // 클라우드가 완전히 비어있음 → 지금 로컬(파일 seed 포함) 데이터를 최초 업로드
+      pushToCloud();
     }
     flagSaved();
     // 이후 실시간 반영(다른 기기에서 바뀌면 여기로 들어옴)

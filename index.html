@@ -298,7 +298,18 @@ const disp=m=>m.replace('26년','26.').replace(/\s+/g,' ').replace('(예상)',' 
 // 월 키에서 연도(예: '26')와 월만(예: '1월') 뽑아내기
 const yearOf=m=>{ const y=m.match(/(\d{2})년/); return y?y[1]:''; };
 const monthShort=m=>{ const mm=m.match(/(\d{1,2})\s*월/); return mm? String(parseInt(mm[1],10))+'월' : disp(m).replace(/ ?\(예상\)/,''); };
-const sectionTotal=sec=>(sec.items||[]).reduce((a,[,v])=>a+(Number(v)||0),0);
+const sectionTotal=sec=>((sec&&sec.items)||[]).reduce((a,[,v])=>a+(Number(v)||0),0);
+// 모든 달이 4개 카테고리를 반드시 갖도록 보정(누락되면 빈 항목으로 채움)
+function normalizeMonths(){
+  const KEYS=['소득','고정지출비','저축및투자','용돈'];
+  Object.keys(DATA).forEach(mk=>{
+    const d=DATA[mk]; if(!d||typeof d!=='object') { DATA[mk]={}; }
+    KEYS.forEach(k=>{
+      if(!DATA[mk][k] || typeof DATA[mk][k]!=='object'){ DATA[mk][k]={items:[['',null]]}; }
+      else if(!Array.isArray(DATA[mk][k].items)){ DATA[mk][k].items=[['',null]]; }
+    });
+  });
+}
 
 /* ===== 대출 → 월별 고정지출 자동 반영 ===== */
 const LOAN_ITEM_NAME='대출 원리금(자동)';
@@ -420,6 +431,7 @@ function adoptRemote(remote){
   STATE.loans=remote.loans||[];
   STATE.fixed=remote.fixed||{};
   rebindData();
+  normalizeMonths();
   applyLoanAllMonths();
   // 보던 달 유지, 없으면 마지막 달
   current = DATA[keepCurrent] ? keepCurrent : Object.keys(DATA)[Object.keys(DATA).length-1];
@@ -490,6 +502,10 @@ function removeMonth(m){
   save(); renderMonthly();
 }
 function renderMonthly(){
+  normalizeMonths();
+  const keys=Object.keys(DATA);
+  if(!keys.length){ buildTabs(); return; }         // 달이 하나도 없으면 탭만
+  if(!DATA[current]) current=keys[keys.length-1];   // 현재 달이 사라졌으면 마지막 달로
   buildTabs();
   const d=DATA[current]; const totals={}; SECTIONS.forEach(s=>totals[s.key]=sectionTotal(d[s.key]));
   paintHero(totals); paintCats(d,totals); drawChart();
@@ -795,6 +811,7 @@ document.getElementById('resetBtn').onclick=()=>{
 function rebindData(){ for(const k of Object.keys(DATA)) delete DATA[k]; Object.assign(DATA,STATE.months); STATE.months=DATA; }
 
 /* ---------- 시작 ---------- */
+normalizeMonths();
 applyLoanAllMonths();
 setView('monthly');
 flagSaved();

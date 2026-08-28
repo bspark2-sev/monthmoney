@@ -471,14 +471,37 @@ function buildTabs(){
     b.onclick=()=>{current=m;renderMonthly();};
     nav.appendChild(b);
   });
-  const add=document.createElement('button'); add.className='mtab add'; add.textContent='+ 달 추가'; add.title='새 달 추가'; add.onclick=addMonth;
+  // 다음에 추가될 달을 버튼에 미리 보여줌 (예: "+ 9월 추가")
+  let nextLabel='+ 달 추가';
+  const lastKey=keys[keys.length-1];
+  if(lastKey){
+    let y=parseInt((lastKey.match(/(\d{2})년/)||[])[1]||'26',10), m=parseInt((lastKey.match(/(\d{1,2})\s*월/)||[])[1]||'0',10)+1;
+    if(m>12){ m=1; y+=1; }
+    nextLabel='+ '+m+'월 추가';
+  }
+  const add=document.createElement('button'); add.className='mtab add'; add.textContent=nextLabel; add.title='다음 달을 추가합니다'; add.onclick=addMonth;
   nav.appendChild(add);
 }
 function addMonth(){
-  const name=prompt('새 달 이름을 입력하세요 (예: 26년08월)'); if(!name) return;
-  if(DATA[name]){ alert('이미 있는 달이에요.'); return; }
-  // 바로 직전 달(가장 마지막 달)을 기준으로 고정 항목의 '현재 금액'을 가져옴
-  const prevKey=Object.keys(DATA)[Object.keys(DATA).length-1];
+  const keys=Object.keys(DATA);
+  const prevKey=keys[keys.length-1];
+  // 가장 최근 달의 연/월을 구해서 '다음 달'을 자동 계산 (12월 다음은 이듬해 1월)
+  let name;
+  const ym = prevKey ? {y:parseInt((prevKey.match(/(\d{2})년/)||[])[1]||'26',10), m:parseInt((prevKey.match(/(\d{1,2})\s*월/)||[])[1]||'1',10)} : null;
+  if(ym){
+    let y=ym.y, m=ym.m+1;
+    if(m>12){ m=1; y+=1; }
+    name = y+'년'+String(m).padStart(2,'0')+'월';   // 예: 26년09월
+  } else {
+    name = '26년01월';
+  }
+  // 혹시 이미 있으면(중복) 다음 달로 계속 밀기
+  let guard=0;
+  while(DATA[name] && guard<24){
+    let y=parseInt(name.match(/(\d{2})년/)[1],10), m=parseInt(name.match(/(\d{1,2})\s*월/)[1],10)+1;
+    if(m>12){ m=1; y+=1; }
+    name=y+'년'+String(m).padStart(2,'0')+'월'; guard++;
+  }
   const prev=prevKey?DATA[prevKey]:null;
   const blank={};
   SECTIONS.forEach(s=>{

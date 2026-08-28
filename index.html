@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v12</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v13-진단</span></footer>
 </div>
 
 <script>
@@ -403,17 +403,37 @@ function stripAuto(months){
   return out;
 }
 function cloudPayloadMonths(){ return stripAuto(STATE.months); }
+// ===== 진단용 화면 로그 =====
+function dbg(msg){
+  try{
+    let box=document.getElementById('dbgLog');
+    if(!box){
+      box=document.createElement('div'); box.id='dbgLog';
+      box.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;max-height:38vh;overflow:auto;background:#111c;color:#7fffa0;font:11px/1.45 monospace;padding:8px 10px;border-radius:8px;z-index:9999;white-space:pre-wrap;box-shadow:0 4px 20px #0006';
+      const btn=document.createElement('button'); btn.textContent='로그 지우기'; btn.style.cssText='position:absolute;top:4px;right:8px;font:11px monospace;background:#333;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer';
+      btn.onclick=()=>{ box.querySelector('.dbgbody').textContent=''; };
+      const body=document.createElement('div'); body.className='dbgbody';
+      box.appendChild(btn); box.appendChild(body);
+      document.body.appendChild(box);
+    }
+    const body=box.querySelector('.dbgbody');
+    const t=new Date().toLocaleTimeString('ko-KR',{hour12:false})+'.'+String(Date.now()%1000).padStart(3,'0');
+    body.textContent += '['+t+'] '+msg+'\n';
+    box.scrollTop=box.scrollHeight;
+  }catch(e){}
+}
 // 이 기기 고유 ID (메아리 판별용)
-const CLIENT_ID = 'c'+Math.random().toString(36).slice(2)+Date.now().toString(36);
+const CLIENT_ID = 'c'+Math.random().toString(36).slice(2,7);
 fb.recentWrites = fb.recentWrites || [];
 function pushToCloud(){
-  if(!fb.ready||!fb.ref||fb.applyingRemote) return;
+  if(!fb.ready||!fb.ref||fb.applyingRemote){ dbg('pushToCloud 건너뜀 (ready='+fb.ready+' applying='+fb.applyingRemote+')'); return; }
   const cleanMonths=cloudPayloadMonths();
-  const wid=CLIENT_ID+':'+Date.now()+':'+Math.random().toString(36).slice(2);
+  const wid=CLIENT_ID+':'+Date.now()+':'+Math.random().toString(36).slice(2,6);
   fb.lastWriteId=wid;
-  fb.recentWrites.push(wid); if(fb.recentWrites.length>8) fb.recentWrites.shift(); // 최근 쓰기 여러 개 기억
+  fb.recentWrites.push(wid); if(fb.recentWrites.length>8) fb.recentWrites.shift();
   const payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _writer:CLIENT_ID, _writeId:wid, _updated:Date.now() };
-  fb.ref.set(payload).catch(err=>console.warn('클라우드 저장 실패:',err));
+  dbg('→ 클라우드 전송: 달수='+Object.keys(cleanMonths).length+' wid='+wid.slice(0,14));
+  fb.ref.set(payload).then(()=>dbg('  전송 완료 ✓')).catch(err=>dbg('  전송 실패 ✗ '+err));
 }
 // 현재 화면 데이터와 원격 데이터가 (파생 제외) 같은지
 function sameAsCurrent(r){
@@ -424,31 +444,34 @@ function sameAsCurrent(r){
   }catch(e){ return false; }
 }
 function startSync(){
-  if(!fb.db){ flagSaved(); return; }
-  // 로그인 없이 한 곳(budget/main)에 저장 — 내 모든 기기가 같은 데이터를 봄
+  if(!fb.db){ dbg('Firebase 미연결 → 로컬 모드'); flagSaved(); return; }
   fb.ref=fb.db.ref('budget/main');
   fb.gotFirst=false;
+  dbg('startSync: 리스너 등록 (내 ID='+CLIENT_ID+')');
   fb.ref.on('value',snap=>{
     const r=snap.val();
     fb.ready=true;
     if(!r || !r.months || !Object.keys(r.months).length){
+      dbg('← 수신: 클라우드 비어있음');
       if(!fb.gotFirst){ fb.gotFirst=true; pushToCloud(); flagSaved(); }
       return;
     }
-    // 내가 최근에 쓴 것(메아리)이면 무시
-    if(r._writeId && fb.recentWrites.indexOf(r._writeId)>=0){ fb.gotFirst=true; flagSaved(); return; }
-    // 이미 화면에 같은 내용이면 다시 그릴 필요 없음
-    if(fb.gotFirst && sameAsCurrent(r)){ flagSaved(); return; }
+    const wid=r._writeId||'(없음)';
+    if(r._writeId && fb.recentWrites.indexOf(r._writeId)>=0){ dbg('← 수신: 내 메아리 무시 (wid='+wid.slice(0,14)+')'); fb.gotFirst=true; flagSaved(); return; }
+    if(fb.gotFirst && sameAsCurrent(r)){ dbg('← 수신: 화면과 동일 → 스킵'); flagSaved(); return; }
+    dbg('← 수신: 다른 변경 반영 (writer='+(r._writer||'?')+' 달수='+Object.keys(r.months).length+')');
     fb.gotFirst=true;
     adoptRemote(r);
     flagSaved();
-  }, err=>{ console.warn('클라우드 읽기 실패:',err); fb.ready=false; flagSaved(); });
+  }, err=>{ dbg('클라우드 읽기 실패 ✗ '+err); fb.ready=false; flagSaved(); });
 }
 // 원격 데이터를 화면에 반영 (입력 중 커서 방해 최소화)
 function adoptRemote(remote){
+  dbg('  adoptRemote 실행 → 화면 다시 그림');
   // 입력 중(포커스가 입력칸에 있음)이면 반영 미루기
   const active=document.activeElement;
   if(active && (active.tagName==='INPUT') && active.closest && active.closest('#cats,#loanList')){
+    dbg('  (입력 중이라 1.2초 미룸)');
     clearTimeout(fb._retry); fb._retry=setTimeout(()=>adoptRemote(remote),1200); return;
   }
   const keepCurrent=current;
@@ -474,7 +497,7 @@ function toggleFixed(secKey,name,amount){
   const i=STATE.fixed[secKey].findIndex(([n])=>n===name);
   if(i>=0) STATE.fixed[secKey].splice(i,1);
   else STATE.fixed[secKey].push([name,(Number(amount)||null)]);
-  save(); renderMonthly();
+  dbg('▶ 고정 토글: '+name+(i>=0?' 해제':' 설정')); save(); renderMonthly(); dbg('  renderMonthly 완료');
 }
 
 /* ===== 월별 계획 ===== */
@@ -542,13 +565,13 @@ function addMonth(){
     });
     blank[s.key]={items: rows.length?rows:[['',null]]};
   });
-  DATA[name]=blank; applyLoanToMonth(name); current=name; save(); renderMonthly();
+  DATA[name]=blank; applyLoanToMonth(name); current=name; dbg('▶ 달 추가: '+name); save(); renderMonthly(); dbg('  renderMonthly 완료 (탭수='+Object.keys(DATA).length+')');
 }
 function removeMonth(m){
   if(Object.keys(DATA).length<=1){ alert('마지막 한 달은 지울 수 없어요.'); return; }
   if(!confirm(`'${disp(m)}' 달을 삭제할까요?`)) return;
   delete DATA[m]; if(current===m) current=Object.keys(DATA)[Object.keys(DATA).length-1];
-  save(); renderMonthly();
+  dbg('▶ 달 삭제: '+m); save(); renderMonthly(); dbg('  renderMonthly 완료 (탭수='+Object.keys(DATA).length+')');
 }
 function renderMonthly(){
   normalizeMonths();

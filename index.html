@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v14</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v15</span></footer>
 </div>
 
 <script>
@@ -377,8 +377,8 @@ function applyLoanAllMonths(){ Object.keys(DATA).forEach(applyLoanToMonth); }
 function save(){
   STATE.months=DATA;                 // 화면이 쓰는 DATA와 저장용 STATE를 항상 일치시킴
   try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
-  pushToCloud();
-  flagSaved();
+  try{ pushToCloud(); }catch(e){ console.warn('동기화 오류(무시하고 계속):',e); }
+  try{ flagSaved(); }catch(e){}
 }
 function flagSaved(){
   const el=document.getElementById('saveState'); if(!el) return;
@@ -502,7 +502,7 @@ function toggleFixed(secKey,name,amount){
   const i=STATE.fixed[secKey].findIndex(([n])=>n===name);
   if(i>=0) STATE.fixed[secKey].splice(i,1);
   else STATE.fixed[secKey].push([name,(Number(amount)||null)]);
-  dbg('▶ 고정 토글: '+name+(i>=0?' 해제':' 설정')); save(); renderMonthly(); dbg('  renderMonthly 완료');
+  renderMonthly(); save();
 }
 
 /* ===== 월별 계획 ===== */
@@ -570,13 +570,13 @@ function addMonth(){
     });
     blank[s.key]={items: rows.length?rows:[['',null]]};
   });
-  DATA[name]=blank; applyLoanToMonth(name); current=name; dbg('▶ 달 추가: '+name); save(); renderMonthly(); dbg('  renderMonthly 완료 (탭수='+Object.keys(DATA).length+')');
+  DATA[name]=blank; applyLoanToMonth(name); current=name; renderMonthly(); save();
 }
 function removeMonth(m){
   if(Object.keys(DATA).length<=1){ alert('마지막 한 달은 지울 수 없어요.'); return; }
   if(!confirm(`'${disp(m)}' 달을 삭제할까요?`)) return;
   delete DATA[m]; if(current===m) current=Object.keys(DATA)[Object.keys(DATA).length-1];
-  dbg('▶ 달 삭제: '+m); save(); renderMonthly(); dbg('  renderMonthly 완료 (탭수='+Object.keys(DATA).length+')');
+  renderMonthly(); save();
 }
 function renderMonthly(){
   normalizeMonths();
@@ -614,7 +614,7 @@ function paintCats(d,totals){
     const order=(sec.items||[]).map((item,idx)=>({item,idx}));
     order.sort((a,b)=>rankOf(s.key,a.item)-rankOf(s.key,b.item));
     order.forEach(({item,idx})=>rowsEl.appendChild(makeRow(s.key,item,idx)));
-    el.querySelector('.addrow').onclick=()=>{ sec.items.push(['',null]); save(); renderMonthly(); focusLastRow(s.key); };
+    el.querySelector('.addrow').onclick=()=>{ sec.items.push(['',null]); renderMonthly(); focusLastRow(s.key); save(); };
     cats.appendChild(el);
   });
 }
@@ -648,7 +648,7 @@ function makeRow(secKey,item,idx){
   am.oninput=()=>{ const v=am.value.replace(/[^0-9.-]/g,''); DATA[current][secKey].items[idx][1]=v===''?null:Number(v); liveTotals(); queueSave(); };
   am.onblur=()=>{ const raw=DATA[current][secKey].items[idx][1]; am.value=raw==null?'':Number(raw).toLocaleString('ko-KR'); };
   const rm=document.createElement('button'); rm.className='rm'; rm.textContent='×'; rm.title='삭제';
-  rm.onclick=()=>{ DATA[current][secKey].items.splice(idx,1); save(); renderMonthly(); };
+  rm.onclick=()=>{ DATA[current][secKey].items.splice(idx,1); renderMonthly(); save(); };
   row.dataset.idx=idx;
   // 부드러운 드래그 (마우스/터치 공통): 손잡이를 누르고 끌면 행이 따라오고 나머지가 자리를 내줌
   handle.addEventListener('pointerdown',e=>startDrag(e,row,secKey,idx));
@@ -721,7 +721,7 @@ function reorderByDisplay(secKey, orderedIdx){
   const rest=arr.map((_,i)=>i).filter(i=>!movable.has(i));
   const newArr=[...orderedIdx.map(i=>arr[i]), ...rest.map(i=>arr[i])];
   DATA[current][secKey].items=newArr;
-  save(); renderMonthly();
+  renderMonthly(); save();
 }
 function focusLastRow(secKey){ const rows=document.querySelectorAll(`.row[data-sec="${CSS.escape(secKey)}"]`); const last=rows[rows.length-1]; if(last) last.querySelector('.nm').focus(); }
 function liveTotals(){
@@ -817,10 +817,10 @@ function renderLoan(){
     pIn.onfocus=()=>{ pIn.value=ln.principal||''; };
     pIn.oninput=()=>{ const v=pIn.value.replace(/[^0-9.]/g,''); ln.principal=v===''?0:Number(v); liveLoanTotals(); refreshLoanCardMeta(card,ln); queueSave(); };
     pIn.onblur=()=>{ pIn.value=ln.principal?Number(ln.principal).toLocaleString('ko-KR'):''; };
-    card.querySelector('.lremove').onclick=()=>{ if(confirm(`'${ln.name||'이 대출'}'을 삭제할까요?`)){ STATE.loans.splice(li,1); applyLoanAllMonths(); save(); renderLoan(); } };
+    card.querySelector('.lremove').onclick=()=>{ if(confirm(`'${ln.name||'이 대출'}'을 삭제할까요?`)){ STATE.loans.splice(li,1); applyLoanAllMonths(); renderLoan(); save(); } };
     const pl=card.querySelector('.paylist');
     (ln.pays||[]).forEach((p,pi)=>pl.appendChild(makePayRow(ln,p,pi,card)));
-    card.querySelector('.addpay').onclick=()=>{ ln.pays=ln.pays||[]; const last=Object.keys(DATA)[Object.keys(DATA).length-1]; ln.pays.push([disp(last).replace(/ ?\(예상\)/,''),null]); save(); renderLoan(); };
+    card.querySelector('.addpay').onclick=()=>{ ln.pays=ln.pays||[]; const last=Object.keys(DATA)[Object.keys(DATA).length-1]; ln.pays.push([disp(last).replace(/ ?\(예상\)/,''),null]); renderLoan(); save(); };
     list.appendChild(card);
   });
   setStat('lTotal',totalP); setStat('lPaid',totalPaid); setStat('lRemain',totalP-totalPaid);
@@ -834,7 +834,7 @@ function makePayRow(ln,p,pi,card){
   pa.oninput=()=>{ const v=pa.value.replace(/[^0-9.]/g,''); ln.pays[pi][1]=v===''?null:Number(v); liveLoanTotals(); refreshLoanCardMeta(card,ln); applyLoanAllMonths(); queueSave(); };
   pa.onblur=()=>{ pa.value=ln.pays[pi][1]==null?'':Number(ln.pays[pi][1]).toLocaleString('ko-KR'); };
   const rm=document.createElement('button'); rm.className='prm'; rm.textContent='×'; rm.title='삭제';
-  rm.onclick=()=>{ ln.pays.splice(pi,1); applyLoanAllMonths(); save(); renderLoan(); };
+  rm.onclick=()=>{ ln.pays.splice(pi,1); applyLoanAllMonths(); renderLoan(); save(); };
   row.append(mm,pa,rm); return row;
 }
 function refreshLoanCardMeta(card,ln){
@@ -847,7 +847,7 @@ function refreshLoanCardMeta(card,ln){
 }
 function setStat(id,v){ document.getElementById(id).innerHTML=Math.round(v).toLocaleString('ko-KR')+'<span class="won">원</span>'; }
 function liveLoanTotals(){ const st=scheduleLoanStatus(); let tp=st.principal,tpaid=st.principal-st.remain; STATE.loans.forEach(ln=>{ tp+=Number(ln.principal)||0; tpaid+=loanPaid(ln); }); setStat('lTotal',tp); setStat('lPaid',tpaid); setStat('lRemain',tp-tpaid); }
-document.getElementById('addLoanBtn').onclick=()=>{ STATE.loans.push({name:'',principal:0,pays:[]}); save(); renderLoan(); };
+document.getElementById('addLoanBtn').onclick=()=>{ STATE.loans.push({name:'',principal:0,pays:[]}); renderLoan(); save(); };
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 /* ===== 뷰 전환 ===== */

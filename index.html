@@ -474,10 +474,21 @@ function buildTabs(){
 function addMonth(){
   const name=prompt('새 달 이름을 입력하세요 (예: 26년08월)'); if(!name) return;
   if(DATA[name]){ alert('이미 있는 달이에요.'); return; }
+  // 바로 직전 달(가장 마지막 달)을 기준으로 고정 항목의 '현재 금액'을 가져옴
+  const prevKey=Object.keys(DATA)[Object.keys(DATA).length-1];
+  const prev=prevKey?DATA[prevKey]:null;
   const blank={};
   SECTIONS.forEach(s=>{
-    const fx=(STATE.fixed[s.key]||[]).map(([n,a])=>[n,a==null?null:a]);
-    blank[s.key]={items: fx.length?fx:[['',null]]};
+    const fixedNames=(STATE.fixed[s.key]||[]).map(([n])=>n);
+    const prevItems=(prev&&prev[s.key]&&prev[s.key].items)||[];
+    const rows=[];
+    fixedNames.forEach(nm=>{
+      // 직전 달에서 같은 이름의 (자동 아님) 항목을 찾아 현재 금액을 그대로 사용
+      const found=prevItems.find(it=>it[0]===nm && !(it[2]&&it[2].auto));
+      const amt = found ? found[1] : null;
+      rows.push([nm, amt]);
+    });
+    blank[s.key]={items: rows.length?rows:[['',null]]};
   });
   DATA[name]=blank; applyLoanToMonth(name); current=name; save(); renderMonthly();
 }
@@ -790,7 +801,7 @@ document.getElementById('resetBtn').onclick=()=>{
   if(!confirm('처음 원본(가계부.xlsx) 값으로 되돌릴까요? 지금까지 수정한 내용과 대출·고정항목이 모두 사라집니다.')) return;
   STATE=freshState(); rebindData(); applyLoanAllMonths(); current=Object.keys(STATE.months)[Object.keys(STATE.months).length-1]; save(); setView('monthly');
 };
-function rebindData(){ for(const k of Object.keys(DATA)) delete DATA[k]; Object.assign(DATA,STATE.months); }
+function rebindData(){ for(const k of Object.keys(DATA)) delete DATA[k]; Object.assign(DATA,STATE.months); STATE.months=DATA; }
 
 /* ---------- 시작 ---------- */
 applyLoanAllMonths();

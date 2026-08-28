@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v13-진단</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v14</span></footer>
 </div>
 
 <script>
@@ -375,6 +375,7 @@ function applyLoanToMonth(monthKey){
 function applyLoanAllMonths(){ Object.keys(DATA).forEach(applyLoanToMonth); }
 
 function save(){
+  STATE.months=DATA;                 // 화면이 쓰는 DATA와 저장용 STATE를 항상 일치시킴
   try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
   pushToCloud();
   flagSaved();
@@ -402,9 +403,10 @@ function stripAuto(months){
   });
   return out;
 }
-function cloudPayloadMonths(){ return stripAuto(STATE.months); }
-// ===== 진단용 화면 로그 =====
+function cloudPayloadMonths(){ STATE.months=DATA; return stripAuto(DATA); }
+// ===== 진단용 화면 로그 (기본 꺼짐; 필요시 window.DEBUG_SYNC=true 로 켜기) =====
 function dbg(msg){
+  if(!window.DEBUG_SYNC) return;
   try{
     let box=document.getElementById('dbgLog');
     if(!box){
@@ -427,6 +429,7 @@ const CLIENT_ID = 'c'+Math.random().toString(36).slice(2,7);
 fb.recentWrites = fb.recentWrites || [];
 function pushToCloud(){
   if(!fb.ready||!fb.ref||fb.applyingRemote){ dbg('pushToCloud 건너뜀 (ready='+fb.ready+' applying='+fb.applyingRemote+')'); return; }
+  dbg('  [점검] DATA달수='+Object.keys(DATA).length+' STATE.months달수='+Object.keys(STATE.months).length+' 같은객체='+(DATA===STATE.months));
   const cleanMonths=cloudPayloadMonths();
   const wid=CLIENT_ID+':'+Date.now()+':'+Math.random().toString(36).slice(2,6);
   fb.lastWriteId=wid;
@@ -476,10 +479,12 @@ function adoptRemote(remote){
   }
   const keepCurrent=current;
   fb.applyingRemote=true;
-  STATE.months=remote.months||{};
+  // DATA(화면이 쓰는 객체)를 '교체'하지 않고 '내용만' 원격 데이터로 갈아끼운다 → 객체 분리 방지
+  for(const k of Object.keys(DATA)) delete DATA[k];
+  Object.assign(DATA, remote.months||{});
+  STATE.months=DATA;                 // 항상 같은 객체를 가리키게
   STATE.loans=remote.loans||[];
   STATE.fixed=remote.fixed||{};
-  rebindData();
   normalizeMonths();
   applyLoanAllMonths();
   // 보던 달 유지, 없으면 마지막 달

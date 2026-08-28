@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>나의 가계부 · 계획 대시보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- Firebase (동기화용) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --ink:#1c2321;--paper:#f3f0e7;--paper-2:#ebe6d8;--line:#d8d1bd;
+    --income:#2f6d5b;--fixed:#b1573a;--save:#3a5a8c;--spend:#c08a2e;--loan:#7a4b8c;
+    --muted:#6e6b60;--card:#fbf9f2;
+    --shadow:0 1px 0 rgba(28,35,33,.04), 0 12px 30px -18px rgba(28,35,33,.35);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:'IBM Plex Sans KR',system-ui,sans-serif;background:var(--paper);color:var(--ink);
+    line-height:1.5;padding:clamp(16px,4vw,44px) clamp(14px,4vw,40px) 90px;
+    background-image:radial-gradient(circle at 1px 1px, rgba(28,35,33,.05) 1px, transparent 0);background-size:26px 26px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  header.mast{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;border-bottom:2px solid var(--ink);padding-bottom:18px}
+  .mast .title{font-family:'Gowun Batang',serif;font-weight:700;font-size:clamp(26px,5vw,42px);letter-spacing:-.01em;line-height:1.05}
+  .mast .sub{font-size:13px;color:var(--muted);margin-top:6px}
+  .mast .save-state{font-size:11.5px;color:var(--muted);text-align:right;letter-spacing:.03em}
+  .mast .save-state b{color:var(--income);font-weight:600}
+
+  .viewswitch{display:flex;gap:6px;margin:22px 0 4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:5px;width:max-content;box-shadow:var(--shadow)}
+  .vbtn{font-size:14px;font-weight:600;border:none;background:none;color:var(--muted);padding:9px 20px;border-radius:8px;cursor:pointer;transition:.16s}
+  .vbtn[aria-selected="true"]{background:var(--ink);color:var(--paper)}
+  .vbtn:not([aria-selected="true"]):hover{color:var(--ink)}
+
+  nav.months{display:flex;flex-wrap:wrap;gap:6px;margin:20px 0 26px;align-items:center}
+  .yearlabel{font-family:'Gowun Batang',serif;font-weight:700;font-size:15px;color:var(--muted);margin-right:6px;letter-spacing:.01em;white-space:nowrap}
+  .mtab{font-size:13.5px;font-weight:500;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:999px;cursor:pointer;transition:.16s;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .mtab:hover{border-color:var(--ink)}
+  .mtab[aria-selected="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .mtab .est{font-size:9.5px;opacity:.65;border:1px solid currentColor;border-radius:4px;padding:0 3px;line-height:1.4}
+  .mtab .del{width:0;overflow:hidden;opacity:0;font-weight:700;border:none;background:none;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0;transition:.16s}
+  .mtab[aria-selected="true"] .del{width:14px;opacity:.7;margin-left:1px}
+  .mtab[aria-selected="true"] .del:hover{opacity:1}
+  .mtab.add{border-style:dashed;font-weight:600;color:var(--muted);padding:8px 13px}
+  .mtab.add:hover{color:var(--ink)}
+
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:clamp(20px,3.5vw,34px);display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(20px,4vw,40px);margin-bottom:22px;position:relative;overflow:hidden}
+  .hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--income)}
+  .hero .label{font-size:13px;color:var(--muted)}
+  .hero .avail{font-family:'Gowun Batang',serif;font-weight:700;font-size:clamp(38px,8vw,68px);line-height:1;margin:10px 0 4px;letter-spacing:-.02em}
+  .hero .avail.neg{color:var(--fixed)}
+  .hero .avail .won{font-size:.42em;font-weight:400;color:var(--muted);margin-left:6px;font-family:'IBM Plex Sans KR'}
+  .hero .note{font-size:12.5px;color:var(--muted);max-width:36ch}
+  .hero .flow{display:flex;flex-direction:column;justify-content:center;gap:11px;border-left:1px dashed var(--line);padding-left:clamp(16px,3vw,30px)}
+  .flowrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:14px}
+  .flowrow .k{color:var(--muted);display:flex;align-items:center;gap:8px}
+  .flowrow .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .flowrow .v{font-variant-numeric:tabular-nums;font-weight:600}
+  .flowrow.eq{border-top:1px solid var(--line);padding-top:10px;margin-top:2px}
+  .flowrow.eq .k{color:var(--ink);font-weight:600}
+
+  .cats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px}
+  .cat{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:150px}
+  .cat h3{font-size:13px;font-weight:600;padding:13px 15px 10px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line)}
+  .cat h3 .tag{width:9px;height:9px;border-radius:2px}
+  .cat .sum{padding:12px 15px 8px;font-family:'Gowun Batang',serif;font-weight:700;font-size:22px;font-variant-numeric:tabular-nums}
+  .cat .sum small{display:block;font-family:'IBM Plex Sans KR';font-weight:400;font-size:11px;color:var(--muted);margin-top:2px}
+  .cat .rows{padding:4px 10px 8px;display:flex;flex-direction:column;gap:3px;flex:1}
+  .row{display:flex;align-items:center;gap:3px;padding:2px 0;background:var(--card);border-radius:7px}
+  .row .drag{flex:0 0 auto;cursor:grab;color:#cec7b2;font-size:14px;line-height:1;padding:5px 3px;user-select:none;touch-action:none;letter-spacing:-3px;transition:color .12s}
+  .row:hover .drag{color:var(--muted)}
+  .row .drag:active{cursor:grabbing}
+  .row.grabbing{box-shadow:0 6px 20px -6px rgba(28,35,33,.35);background:#fff;cursor:grabbing;border:1px solid var(--line)}
+  .row.grabbing .drag{color:var(--ink)}
+  body.dragging-active{cursor:grabbing;user-select:none}
+  body.dragging-active input{pointer-events:none}
+  .row input{font-family:'IBM Plex Sans KR';font-size:12.5px;border:1px solid transparent;background:transparent;border-radius:6px;padding:5px 6px;color:var(--ink);width:100%;transition:.12s}
+  .row input:hover{background:#fff}
+  .row input:focus{outline:none;border-color:var(--line);background:#fff}
+  .row .nm{flex:1;min-width:0}
+  .row .am{width:86px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .row .am:focus{color:var(--ink)}
+  .row .pin,.row .rm{flex:0 0 auto;border:none;background:none;cursor:pointer;line-height:1;padding:2px 3px;border-radius:5px;transition:.12s;font-size:13px}
+  .row .pin{color:#cfc8b4;filter:grayscale(1);opacity:.6}
+  .row .pin.on{color:var(--fixed);filter:none;opacity:1}
+  .row .pin:hover{background:#fff;opacity:1}
+  .row .rm{color:#c3bda9;font-size:15px;opacity:0}
+  .row:hover .rm{opacity:1}
+  .row .rm:hover{color:var(--fixed);background:#fff}
+  .addrow{margin:4px 4px 12px;border:1px dashed var(--line);background:none;color:var(--muted);font-size:12px;font-weight:500;padding:7px;border-radius:8px;cursor:pointer;width:calc(100% - 8px);transition:.14s}
+  .addrow:hover{color:var(--ink);border-color:var(--ink)}
+  /* 잠금 자동 항목 (대출 원리금) */
+  .row.auto{background:linear-gradient(0deg,rgba(122,75,140,.06),rgba(122,75,140,.06));border-radius:7px;padding:3px 4px}
+  .row .lock{flex:0 0 auto;font-size:11px;padding:2px 3px;opacity:.7}
+  .row .autonm{flex:1;min-width:0;font-size:12.5px;padding:5px 6px;color:var(--loan);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .autoam{width:86px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;padding:5px 6px;color:var(--loan);font-weight:600}
+  .c-income h3 .tag{background:var(--income)} .c-income .sum{color:var(--income)}
+  .c-fixed h3 .tag{background:var(--fixed)} .c-fixed .sum{color:var(--fixed)}
+  .c-save h3 .tag{background:var(--save)} .c-save .sum{color:var(--save)}
+  .c-spend h3 .tag{background:var(--spend)} .c-spend .sum{color:var(--spend)}
+
+  .hint{font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:18px;display:flex;gap:8px;align-items:center}
+  .hint b{color:var(--fixed)}
+
+  .trend{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:clamp(18px,3vw,28px)}
+  .trend h2{font-family:'Gowun Batang',serif;font-size:19px;font-weight:700;margin-bottom:3px}
+  .trend .cap{font-size:12.5px;color:var(--muted);margin-bottom:20px}
+  .chart{width:100%;height:230px}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:12px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .legend i{width:16px;height:3px;border-radius:2px;display:inline-block}
+
+  .loan-top{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}
+  .lstat{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:20px 22px;position:relative;overflow:hidden}
+  .lstat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--loan)}
+  .lstat .k{font-size:12.5px;color:var(--muted)}
+  .lstat .v{font-family:'Gowun Batang',serif;font-weight:700;font-size:clamp(24px,4vw,34px);margin-top:8px;font-variant-numeric:tabular-nums;line-height:1}
+  .lstat .v .won{font-size:.5em;font-weight:400;color:var(--muted);font-family:'IBM Plex Sans KR';margin-left:4px}
+  .lstat.paid .v{color:var(--income)}
+  .lstat.remain .v{color:var(--loan)}
+
+  .loan{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden}
+  .loan .lhead{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px 20px 14px}
+  .loan .lname{font-family:'Gowun Batang',serif;font-weight:700;font-size:19px;border:1px solid transparent;background:none;border-radius:8px;padding:4px 8px;min-width:120px;color:var(--ink)}
+  .loan .lname:hover{background:#fff} .loan .lname:focus{outline:none;border-color:var(--line);background:#fff}
+  .loan .principal{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+  .loan .principal input{width:130px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 8px;font-family:'IBM Plex Sans KR';color:var(--ink)}
+  .loan .lremove{border:none;background:none;color:#c3bda9;font-size:18px;cursor:pointer;padding:2px 6px;border-radius:6px}
+  .loan .lremove:hover{color:var(--fixed);background:#fff}
+  .lbar{height:9px;background:var(--paper-2);border-radius:999px;margin:0 20px;overflow:hidden;border:1px solid var(--line)}
+  .lbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--income),#3f8f76);border-radius:999px;transition:width .4s}
+  .lmeta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:8px 20px 0}
+  .pays{padding:12px 20px 18px}
+  .pays .ptitle{font-size:12.5px;color:var(--muted);margin-bottom:8px;font-weight:500}
+  .paylist{display:flex;flex-direction:column;gap:3px}
+  .payrow{display:flex;align-items:center;gap:6px}
+  .payrow input{font-size:12.5px;border:1px solid transparent;background:transparent;border-radius:6px;padding:5px 6px;font-family:'IBM Plex Sans KR';transition:.12s;color:var(--ink)}
+  .payrow input:hover{background:#fff}.payrow input:focus{outline:none;border-color:var(--line);background:#fff}
+  .payrow .pm{flex:1;min-width:0}
+  .payrow .pa{width:110px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .payrow .prm{border:none;background:none;color:#c3bda9;font-size:15px;cursor:pointer;opacity:0;padding:2px 4px;border-radius:5px}
+  .payrow:hover .prm{opacity:1}.payrow .prm:hover{color:var(--fixed);background:#fff}
+  .addpay{margin-top:6px;border:1px dashed var(--line);background:none;color:var(--muted);font-size:12px;font-weight:500;padding:7px 12px;border-radius:8px;cursor:pointer;transition:.14s}
+  .addpay:hover{color:var(--ink);border-color:var(--ink)}
+  .addloan{border:1px dashed var(--line);background:var(--card);color:var(--muted);font-weight:600;font-size:14px;padding:14px;border-radius:14px;cursor:pointer;width:100%;transition:.14s}
+  .addloan:hover{color:var(--ink);border-color:var(--ink)}
+  .loan-empty{text-align:center;color:var(--muted);font-size:13px;padding:26px 0}
+  /* 스케줄 연동 대출 */
+  .loan.sched{border-color:#c9b8d4}
+  .schbadge{font-size:10.5px;font-weight:600;color:#fff;background:var(--loan);border-radius:5px;padding:2px 7px;letter-spacing:.02em}
+  .schtable{width:100%;border-collapse:collapse;font-size:12px;margin-top:2px}
+  .schtable th{font-weight:500;color:var(--muted);text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font-size:11px}
+  .schtable td{padding:5px 8px;border-bottom:1px dotted var(--line);font-variant-numeric:tabular-nums}
+  .schtable td.num{text-align:right}
+  .schtable td.dim{color:var(--muted)}
+  .schtable tr.now{background:rgba(122,75,140,.08)}
+  .schtable tr.now td{font-weight:600;color:var(--loan)}
+  .schnote{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .schnote b{color:var(--loan)}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0 0;justify-content:flex-end}
+  .btn{font-family:'IBM Plex Sans KR';font-size:12.5px;font-weight:500;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:9px;cursor:pointer;transition:.14s}
+  .btn:hover{border-color:var(--ink)}
+  .btn.warn:hover{border-color:var(--fixed);color:var(--fixed)}
+  footer{text-align:center;font-size:11.5px;color:var(--muted);margin-top:26px;letter-spacing:.03em}
+  .hidden{display:none}
+
+  @media(max-width:820px){.hero{grid-template-columns:1fr}.hero .flow{border-left:none;border-top:1px dashed var(--line);padding-left:0;padding-top:18px}.cats{grid-template-columns:1fr 1fr}.loan-top{grid-template-columns:1fr}}
+  @media(max-width:520px){.cats{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <div>
+      <div class="title">나의 가계부 · 계획</div>
+      <div class="sub">직접 눌러 고치면 합계가 자동 계산돼요. 변경 내용은 이 브라우저에 자동 저장됩니다.</div>
+    </div>
+    <div class="save-state" id="saveState">불러오는 중…</div>
+  </header>
+
+  <div class="viewswitch" role="tablist" aria-label="화면 전환">
+    <button class="vbtn" id="vMonthly" role="tab" aria-selected="true">월별 계획</button>
+    <button class="vbtn" id="vLoan" role="tab" aria-selected="false">대출 관리</button>
+  </div>
+
+  <!-- ===== 월별 계획 뷰 ===== -->
+  <div id="monthlyView">
+    <nav class="months" id="months" role="tablist" aria-label="월 선택"></nav>
+
+    <div class="hint">📌 <span>항목 옆의 핀을 누르면 <b>고정 항목</b>이 됩니다. 새 달을 추가하면 고정 항목은 금액까지 자동으로 채워져요. (예: 월급·월세)</span></div>
+
+    <section class="hero" aria-live="polite">
+      <div>
+        <div class="label">이번 달 자유롭게 쓸 수 있는 돈 <span style="opacity:.65">(소득 − 고정지출 − 저축·투자)</span></div>
+        <div class="avail" id="availBig">–</div>
+        <p class="note">여기서 용돈까지 쓰고 남는 돈은 오른쪽 흐름에서 확인하세요.</p>
+      </div>
+      <div class="flow" id="flow"></div>
+    </section>
+
+    <section class="cats" id="cats" aria-label="카테고리별 내역"></section>
+
+    <section class="trend">
+      <h2>월별 흐름</h2>
+      <div class="cap">소득 · 고정지출 · 저축/투자 추이와, 매달 자유롭게 쓸 수 있는 금액</div>
+      <svg class="chart" id="chart" viewBox="0 0 900 230" preserveAspectRatio="none" role="img" aria-label="월별 재정 추이 차트"></svg>
+      <div class="legend">
+        <span><i style="background:#2f6d5b"></i>소득</span>
+        <span><i style="background:#b1573a"></i>고정지출비</span>
+        <span><i style="background:#3a5a8c"></i>저축·투자</span>
+        <span><i style="background:#1c2321"></i>쓸 수 있는 돈</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== 대출 관리 뷰 ===== -->
+  <div id="loanView" class="hidden">
+    <div class="loan-top">
+      <div class="lstat"><div class="k">총 대출 원금</div><div class="v" id="lTotal">–</div></div>
+      <div class="lstat paid"><div class="k">지금까지 갚은 금액</div><div class="v" id="lPaid">–</div></div>
+      <div class="lstat remain"><div class="k">남은 대출금</div><div class="v" id="lRemain">–</div></div>
+    </div>
+    <div id="loanList"></div>
+    <button class="addloan" id="addLoanBtn">+ 대출 추가</button>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" id="exportBtn">내보내기 (백업)</button>
+    <button class="btn" id="importBtn">불러오기</button>
+    <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </div>
+  <footer>가계부.xlsx 를 토대로 만든 개인용 계획 대시보드 · 데이터는 서버로 전송되지 않고 이 브라우저에만 저장됩니다</footer>
+</div>
+
+<script>
+/* ---------- 초기(원본) 데이터 ---------- */
+if(typeof structuredClone!=='function'){ window.structuredClone=function(o){ return JSON.parse(JSON.stringify(o)); }; }
+
+/* ===== Firebase 설정 (동기화) ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBlAtY8GtLN4u9DA1-ANX3ZZff5nANcYN4",
+  authDomain: "monthmoney-2f4e6.firebaseapp.com",
+  databaseURL: "https://monthmoney-2f4e6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "monthmoney-2f4e6",
+  storageBucket: "monthmoney-2f4e6.firebasestorage.app",
+  messagingSenderId: "324639094631",
+  appId: "1:324639094631:web:f57059a1d8375cf7fd21c2"
+};
+let fb={ready:false, uid:null, db:null, ref:null, applyingRemote:false, pushTimer:null};
+try{
+  firebase.initializeApp(firebaseConfig);
+  fb.db=firebase.database();
+}catch(e){ console.warn('Firebase init 실패, 로컬 모드로 동작:', e); }
+
+const SEED_MONTHS = {"26년 01월(예상)": {"소득": {"total": 4500000, "items": [["월급", 3100000.0], ["월세", 1400000.0]]}, "고정지출비": {"total": 2708540, "items": [["통신비", 90000.0], ["보험", 121000.0], ["보험", 13750.0], ["관리비", 30000.0], ["풋살회비", 20000.0], ["원리금", 2200000.0], ["쿠팡와우", 7890.0], ["쿠팡플레이", 9900.0], ["할부(4월까지)", 216000.0]]}, "저축및투자": {"total": 1450000, "items": [["연금저축펀드", 200000.0], ["IRP", 250000.0], ["ISA", 200000.0], ["주식", null], ["비트코인", null], ["대출원금", 800000.0]]}, "용돈": {"total": 550000, "items": [["식대", 150000.0], ["생활비", 100000.0], ["데이트비용", 250000.0], ["플랩풋볼", 50000.0]]}, "용돈가능액": 341460, "초과금액": -208540}, "26년 03월": {"소득": {"total": 2212920, "items": [["월급", 5224690.0], ["월세", 1400000.0], ["통신비", 60000.0], ["현재잔액(하나)", 2212920.0], ["현재잔액(신한)", null], ["알바", null]]}, "고정지출비": {"total": 1500480, "items": [["통신비", 91590.0], ["보험(현대)", 121000.0], ["보험(현대)", 13750.0], ["보험(라이나)", 24010.0], ["관리비", 30000.0], ["풋살회비", 20000.0], ["원리금", 2200000.0], ["쿠팡와우", 7890.0], ["쿠팡플레이", 9900.0], ["현대카드", 453483.0], ["하나카드", 939757.0], ["하나카드 3월", 606940.0], ["보험대출상환", 1500480.0]]}, "저축및투자": {"total": 300000, "items": [["연금저축펀드", 100000.0], ["IRP", null], ["ISA", 100000.0], ["주식", 100000.0], ["비트코인", null], ["청약", null]]}, "용돈": {"total": 300000, "items": [["식대", 150000.0], ["생활비", 100000.0], ["플랩풋볼", 50000.0]]}, "용돈가능액": 412440, "초과금액": 112440}, "26년04월": {"소득": {"total": 7610000, "items": [["월급", 3150000.0], ["월세", 1400000.0], ["통신비", 60000.0], ["비상금 대출", 3000000.0], ["현재잔액(하나)", null], ["현재잔액(신한)", null], ["알바", null]]}, "고정지출비": {"total": 6073397, "items": [["통신비", 91590.0], ["보험(현대)", 121000.0], ["보험(현대)", 13750.0], ["보험(라이나)", 24010.0], ["관리비", 30000.0], ["풋살+축구 회비", 40000.0], ["원리금", 2200000.0], ["쿠팡와우", 7890.0], ["쿠팡플레이", 9900.0], ["현대카드(03월)", 376000.0], ["현대카드(04월)", 614257.0], ["테니스", 170000.0], ["도시가스", 75000.0], ["취등록세 반환금", 2300000.0]]}, "저축및투자": {"total": 20000, "items": [["연금저축펀드", null], ["IRP", null], ["ISA", null], ["주식", null], ["비트코인", null], ["청약", 20000.0]]}, "용돈": {"total": 600000, "items": [["식대", 150000.0], ["생활비", 100000.0], ["플랩풋볼", 50000.0], ["수환이형 축의금", 300000.0]]}, "용돈가능액": 1516603, "초과금액": 916603}, "26년05월": {"소득": {"total": 4070000, "items": [["월급", 3150000.0], ["월세", null], ["통신비", 60000.0], ["현재잔액(하나)", 860000.0], ["현재잔액(신한)", null]]}, "고정지출비": {"total": 3088797, "items": [["통신비", 91590.0], ["보험(현대)", 121000.0], ["보험(현대)", 13750.0], ["보험(라이나)", 24010.0], ["관리비", 30000.0], ["풋살+축구 회비", 40000.0], ["쿠팡와우", 7890.0], ["쿠팡플레이", 9900.0], ["현대카드", 335657.0], ["테니스", 170000.0], ["도시가스", 45000.0], ["원리금", 2200000.0]]}, "저축및투자": {"total": 20000, "items": [["연금저축펀드", null], ["IRP", null], ["ISA", null], ["주식", null], ["비트코인", null], ["청약", 20000.0]]}, "용돈": {"total": 300000, "items": [["식대", 150000.0], ["생활비", 100000.0], ["플랩풋볼", 50000.0]]}, "용돈가능액": 961203, "초과금액": 661203}, "26년06월": {"소득": {"total": 4610000, "items": [["월급", 3150000.0], ["월세", 1400000.0], ["통신비", 60000.0], ["현재잔액(하나)", null], ["현재잔액(신한)", null]]}, "고정지출비": {"total": 3619140, "items": [["통신비", 91590.0], ["보험(현대)", 121000.0], ["보험(현대)", 13750.0], ["보험(라이나)", 24010.0], ["관리비", 30000.0], ["풋살+축구 회비", 40000.0], ["쿠팡와우", 7890.0], ["쿠팡플레이", 9900.0], ["현대카드", 66000.0], ["테니스", 170000.0], ["도시가스", 45000.0], ["원리금", 3000000.0]]}, "저축및투자": {"total": 270000, "items": [["연금저축펀드", 150000.0], ["IRP", null], ["ISA", null], ["주식", 100000.0], ["비트코인", null], ["청약", 20000.0]]}, "용돈": {"total": 300000, "items": [["식대", 150000.0], ["생활비", 100000.0], ["플랩풋볼", 50000.0]]}, "용돈가능액": 720860, "초과금액": 420860}, "26년07월": {"소득": {"total": 11200000, "items": [["월급", null], ["월세", 1400000.0], ["통신비", null], ["현재잔액(하나)", 0.0], ["현재잔액(신한)", null], ["대출금", 9800000.0]]}, "고정지출비": {"total": 5844795, "items": [["통신비", null], ["보험(현대)", null], ["보험(현대)", null], ["보험(라이나)", null], ["관리비", null], ["풋살+축구 회비", null], ["쿠팡와우", null], ["쿠팡플레이", null], ["현대카드", 2844795.0], ["테니스", null], ["도시가스", null], ["카카오 대출", 3000000.0], ["원리금", null]]}, "저축및투자": {"total": 0, "items": [["연금저축펀드", null], ["IRP", null], ["ISA", null], ["주식", null], ["비트코인", null], ["청약", null]]}, "용돈": {"total": 0, "items": [["식대", null], ["생활비", null], ["플랩풋볼", null]]}, "용돈가능액": 5355205, "초과금액": 5355205}};
+const LOAN_SCHEDULE = {"meta":{"principal":420000000,"termMonths":480,"start":"2025-03","end":"2065-02","monthlyPrincipal":875000,"totalInterest":319807928},"byMonth":{"2025-03":[2099328,875000,1224328,419125000],"2025-04":[2227682,875000,1352682,418250000],"2025-05":[2181315,875000,1306315,417375000],"2025-06":[2222034,875000,1347034,416500000],"2025-07":[2175849,875000,1300849,415625000],"2025-08":[2216386,875000,1341386,414750000],"2025-09":[2213563,875000,1338563,413875000],"2025-10":[2167650,875000,1292650,413000000],"2025-11":[2207915,875000,1332915,412125000],"2025-12":[2162184,875000,1287184,411250000],"2026-01":[2202267,875000,1327267,410375000],"2026-02":[2199443,875000,1324443,409500000],"2026-03":[2068720,875000,1193720,408625000],"2026-04":[2193795,875000,1318795,407750000],"2026-05":[2148520,875000,1273520,406875000],"2026-06":[2188147,875000,1313147,406000000],"2026-07":[2143054,875000,1268054,405125000],"2026-08":[2182499,875000,1307499,404250000],"2026-09":[2179675,875000,1304675,403375000],"2026-10":[2134856,875000,1259856,402500000],"2026-11":[2174027,875000,1299027,401625000],"2026-12":[2129390,875000,1254390,400750000],"2027-01":[2168379,875000,1293379,399875000],"2027-02":[2165555,875000,1290555,399000000],"2027-03":[2038112,875000,1163112,398125000],"2027-04":[2159907,875000,1284907,397250000],"2027-05":[2115726,875000,1240726,396375000],"2027-06":[2154259,875000,1279259,395500000],"2027-07":[2110260,875000,1235260,394625000],"2027-08":[2148611,875000,1273611,393750000],"2027-09":[2145787,875000,1270787,392875000],"2027-10":[2102061,875000,1227061,392000000],"2027-11":[2140139,875000,1265139,391125000],"2027-12":[2096595,875000,1221595,390250000],"2028-01":[2131494,875000,1256494,389375000],"2028-02":[2128234,875000,1253234,388500000],"2028-03":[2044745,875000,1169745,387625000],"2028-04":[2122601,875000,1247601,386750000],"2028-05":[2079631,875000,1204631,385875000],"2028-06":[2116969,875000,1241969,385000000],"2028-07":[2074180,875000,1199180,384125000],"2028-08":[2111336,875000,1236336,383250000],"2028-09":[2108520,875000,1233520,382375000],"2028-10":[2066004,875000,1191004,381500000],"2028-11":[2102887,875000,1227887,380625000],"2028-12":[2060553,875000,1185553,379750000],"2029-01":[2100171,875000,1225171,378875000],"2029-02":[2097780,875000,1222780,378000000],"2029-03":[1976895,875000,1101895,377125000],"2029-04":[2092132,875000,1217132,376250000],"2029-05":[2050136,875000,1175136,375375000],"2029-06":[2086484,875000,1211484,374500000],"2029-07":[2044671,875000,1169671,373625000],"2029-08":[2080836,875000,1205836,372750000],"2029-09":[2078012,875000,1203012,371875000],"2029-10":[2036472,875000,1161472,371000000],"2029-11":[2072364,875000,1197364,370125000],"2029-12":[2031006,875000,1156006,369250000],"2030-01":[2066716,875000,1191716,368375000],"2030-02":[2063892,875000,1188892,367500000],"2030-03":[1946287,875000,1071287,366625000],"2030-04":[2058244,875000,1183244,365750000],"2030-05":[2017342,875000,1142342,364875000],"2030-06":[2052596,875000,1177596,364000000],"2030-07":[2011876,875000,1136876,363125000],"2030-08":[2046948,875000,1171948,362250000],"2030-09":[2044124,875000,1169124,361375000],"2030-10":[2003678,875000,1128678,360500000],"2030-11":[2038476,875000,1163476,359625000],"2030-12":[1998212,875000,1123212,358750000],"2031-01":[2032828,875000,1157828,357875000],"2031-02":[2030004,875000,1155004,357000000],"2031-03":[1915679,875000,1040679,356125000],"2031-04":[2024356,875000,1149356,355250000],"2031-05":[1984547,875000,1109547,354375000],"2031-06":[2018708,875000,1143708,353500000],"2031-07":[1979082,875000,1104082,352625000],"2031-08":[2013060,875000,1138060,351750000],"2031-09":[2010236,875000,1135236,350875000],"2031-10":[1970883,875000,1095883,350000000],"2031-11":[2004589,875000,1129589,349125000],"2031-12":[1965417,875000,1090417,348250000],"2032-01":[1996265,875000,1121265,347375000],"2032-02":[1993053,875000,1118053,346500000],"2032-03":[1918286,875000,1043286,345625000],"2032-04":[1987421,875000,1112421,344750000],"2032-05":[1948811,875000,1073811,343875000],"2032-06":[1981788,875000,1106788,343000000],"2032-07":[1943360,875000,1068360,342125000],"2032-08":[1976156,875000,1101156,341250000],"2032-09":[1973340,875000,1098340,340375000],"2032-10":[1935184,875000,1060184,339500000],"2032-11":[1967707,875000,1092707,338625000],"2032-12":[1929733,875000,1054733,337750000],"2033-01":[1964668,875000,1089668,336875000],"2033-02":[1962229,875000,1087229,336000000],"2033-03":[1854463,875000,979463,335125000],"2033-04":[1956581,875000,1081581,334250000],"2033-05":[1918958,875000,1043958,333375000],"2033-06":[1950933,875000,1075933,332500000],"2033-07":[1913493,875000,1038493,331625000],"2033-08":[1945285,875000,1070285,330750000],"2033-09":[1942461,875000,1067461,329875000],"2033-10":[1905294,875000,1030294,329000000],"2033-11":[1936813,875000,1061813,328125000],"2033-12":[1899828,875000,1024828,327250000],"2034-01":[1931165,875000,1056165,326375000],"2034-02":[1928341,875000,1053341,325500000],"2034-03":[1823854,875000,948854,324625000],"2034-04":[1922693,875000,1047693,323750000],"2034-05":[1886164,875000,1011164,322875000],"2034-06":[1917045,875000,1042045,322000000],"2034-07":[1880698,875000,1005698,321125000],"2034-08":[1911397,875000,1036397,320250000],"2034-09":[1908573,875000,1033573,319375000],"2034-10":[1872500,875000,997500,318500000],"2034-11":[1902926,875000,1027926,317625000],"2034-12":[1867034,875000,992034,316750000],"2035-01":[1897278,875000,1022278,315875000],"2035-02":[1894454,875000,1019454,315000000],"2035-03":[1793246,875000,918246,314125000],"2035-04":[1888806,875000,1013806,313250000],"2035-05":[1853369,875000,978369,312375000],"2035-06":[1883158,875000,1008158,311500000],"2035-07":[1847904,875000,972904,310625000],"2035-08":[1877510,875000,1002510,309750000],"2035-09":[1874686,875000,999686,308875000],"2035-10":[1839705,875000,964705,308000000],"2035-11":[1869038,875000,994038,307125000],"2035-12":[1834239,875000,959239,306250000],"2036-01":[1861038,875000,986038,305375000],"2036-02":[1857873,875000,982873,304500000],"2036-03":[1791827,875000,916827,303625000],"2036-04":[1852241,875000,977241,302750000],"2036-05":[1817991,875000,942991,301875000],"2036-06":[1846608,875000,971608,301000000],"2036-07":[1812540,875000,937540,300125000],"2036-08":[1840976,875000,965976,299250000],"2036-09":[1838159,875000,963159,298375000],"2036-10":[1804364,875000,929364,297500000],"2036-11":[1832527,875000,957527,296625000],"2036-12":[1798913,875000,923913,295750000],"2037-01":[1829166,875000,954166,294875000],"2037-02":[1826678,875000,951678,294000000],"2037-03":[1732030,875000,857030,293125000],"2037-04":[1821030,875000,946030,292250000],"2037-05":[1787780,875000,912780,291375000],"2037-06":[1815382,875000,940382,290500000],"2037-07":[1782315,875000,907315,289625000],"2037-08":[1809734,875000,934734,288750000],"2037-09":[1806910,875000,931910,287875000],"2037-10":[1774116,875000,899116,287000000],"2037-11":[1801263,875000,926263,286125000],"2037-12":[1768650,875000,893650,285250000],"2038-01":[1795615,875000,920615,284375000],"2038-02":[1792791,875000,917791,283500000],"2038-03":[1701421,875000,826421,282625000],"2038-04":[1787143,875000,912143,281750000],"2038-05":[1754986,875000,879986,280875000],"2038-06":[1781495,875000,906495,280000000],"2038-07":[1749520,875000,874520,279125000],"2038-08":[1775847,875000,900847,278250000],"2038-09":[1773023,875000,898023,277375000],"2038-10":[1741321,875000,866321,276500000],"2038-11":[1767375,875000,892375,275625000],"2038-12":[1735856,875000,860856,274750000],"2039-01":[1761727,875000,886727,273875000],"2039-02":[1758903,875000,883903,273000000],"2039-03":[1670813,875000,795813,272125000],"2039-04":[1753255,875000,878255,271250000],"2039-05":[1722191,875000,847191,270375000],"2039-06":[1747607,875000,872607,269500000],"2039-07":[1716726,875000,841726,268625000],"2039-08":[1741959,875000,866959,267750000],"2039-09":[1739135,875000,864135,266875000],"2039-10":[1708527,875000,833527,266000000],"2039-11":[1733487,875000,858487,265125000],"2039-12":[1703061,875000,828061,264250000],"2040-01":[1725809,875000,850809,263375000],"2040-02":[1722693,875000,847693,262500000],"2040-03":[1665368,875000,790368,261625000],"2040-04":[1717060,875000,842060,260750000],"2040-05":[1687172,875000,812172,259875000],"2040-06":[1711428,875000,836428,259000000],"2040-07":[1681721,875000,806721,258125000],"2040-08":[1705795,875000,830795,257250000],"2040-09":[1702979,875000,827979,256375000],"2040-10":[1673545,875000,798545,255500000],"2040-11":[1697346,875000,822346,254625000],"2040-12":[1668094,875000,793094,253750000],"2041-01":[1693662,875000,818662,252875000],"2041-02":[1691128,875000,816128,252000000],"2041-03":[1609597,875000,734597,251125000],"2041-04":[1685480,875000,810480,250250000],"2041-05":[1656602,875000,781602,249375000],"2041-06":[1679832,875000,804832,248500000],"2041-07":[1651136,875000,776136,247625000],"2041-08":[1674184,875000,799184,246750000],"2041-09":[1671360,875000,796360,245875000],"2041-10":[1642938,875000,767938,245000000],"2041-11":[1665712,875000,790712,244125000],"2041-12":[1637472,875000,762472,243250000],"2042-01":[1660064,875000,785064,242375000],"2042-02":[1657240,875000,782240,241500000],"2042-03":[1578989,875000,703989,240625000],"2042-04":[1651592,875000,776592,239750000],"2042-05":[1623808,875000,748808,238875000],"2042-06":[1645944,875000,770944,238000000],"2042-07":[1618342,875000,743342,237125000],"2042-08":[1640296,875000,765296,236250000],"2042-09":[1637472,875000,762472,235375000],"2042-10":[1610143,875000,735143,234500000],"2042-11":[1631824,875000,756824,233625000],"2042-12":[1604678,875000,729678,232750000],"2043-01":[1626176,875000,751176,231875000],"2043-02":[1623352,875000,748352,231000000],"2043-03":[1548380,875000,673380,230125000],"2043-04":[1617704,875000,742704,229250000],"2043-05":[1591013,875000,716013,228375000],"2043-06":[1612056,875000,737056,227500000],"2043-07":[1585547,875000,710547,226625000],"2043-08":[1606408,875000,731408,225750000],"2043-09":[1603584,875000,728584,224875000],"2043-10":[1577349,875000,702349,224000000],"2043-11":[1597936,875000,722936,223125000],"2043-12":[1571883,875000,696883,222250000],"2044-01":[1590581,875000,715581,221375000],"2044-02":[1587512,875000,712512,220500000],"2044-03":[1538909,875000,663909,219625000],"2044-04":[1581880,875000,706880,218750000],"2044-05":[1556352,875000,681352,217875000],"2044-06":[1576247,875000,701247,217000000],"2044-07":[1550901,875000,675901,216125000],"2044-08":[1570615,875000,695615,215250000],"2044-09":[1567799,875000,692799,214375000],"2044-10":[1542725,875000,667725,213500000],"2044-11":[1562166,875000,687166,212625000],"2044-12":[1537274,875000,662274,211750000],"2045-01":[1558159,875000,683159,210875000],"2045-02":[1555577,875000,680577,210000000],"2045-03":[1487164,875000,612164,209125000],"2045-04":[1549929,875000,674929,208250000],"2045-05":[1525424,875000,650424,207375000],"2045-06":[1544281,875000,669281,206500000],"2045-07":[1519958,875000,644958,205625000],"2045-08":[1538633,875000,663633,204750000],"2045-09":[1535809,875000,660809,203875000],"2045-10":[1511760,875000,636760,203000000],"2045-11":[1530161,875000,655161,202125000],"2045-12":[1506294,875000,631294,201250000],"2046-01":[1524513,875000,649513,200375000],"2046-02":[1521689,875000,646689,199500000],"2046-03":[1456556,875000,581556,198625000],"2046-04":[1516041,875000,641041,197750000],"2046-05":[1492630,875000,617630,196875000],"2046-06":[1510393,875000,635393,196000000],"2046-07":[1487164,875000,612164,195125000],"2046-08":[1504745,875000,629745,194250000],"2046-09":[1501921,875000,626921,193375000],"2046-10":[1478965,875000,603965,192500000],"2046-11":[1496273,875000,621273,191625000],"2046-12":[1473500,875000,598500,190750000],"2047-01":[1490626,875000,615626,189875000],"2047-02":[1487802,875000,612802,189000000],"2047-03":[1425947,875000,550947,188125000],"2047-04":[1482154,875000,607154,187250000],"2047-05":[1459835,875000,584835,186375000],"2047-06":[1476506,875000,601506,185500000],"2047-07":[1454369,875000,579369,184625000],"2047-08":[1470858,875000,595858,183750000],"2047-09":[1468034,875000,593034,182875000],"2047-10":[1446171,875000,571171,182000000],"2047-11":[1462386,875000,587386,181125000],"2047-12":[1440705,875000,565705,180250000],"2048-01":[1455353,875000,580353,179375000],"2048-02":[1452332,875000,577332,178500000],"2048-03":[1412450,875000,537450,177625000],"2048-04":[1446700,875000,571700,176750000],"2048-05":[1425532,875000,550532,175875000],"2048-06":[1441067,875000,566067,175000000],"2048-07":[1420081,875000,545081,174125000],"2048-08":[1435435,875000,560435,173250000],"2048-09":[1432618,875000,557618,172375000],"2048-10":[1411905,875000,536905,171500000],"2048-11":[1426986,875000,551986,170625000],"2048-12":[1406454,875000,531454,169750000],"2049-01":[1422657,875000,547657,168875000],"2049-02":[1420026,875000,545026,168000000],"2049-03":[1364731,875000,489731,167125000],"2049-04":[1414378,875000,539378,166250000],"2049-05":[1394246,875000,519246,165375000],"2049-06":[1408730,875000,533730,164500000],"2049-07":[1388780,875000,513780,163625000],"2049-08":[1403082,875000,528082,162750000],"2049-09":[1400258,875000,525258,161875000],"2049-10":[1380582,875000,505582,161000000],"2049-11":[1394610,875000,519610,160125000],"2049-12":[1375116,875000,500116,159250000],"2050-01":[1388963,875000,513963,158375000],"2050-02":[1386139,875000,511139,157500000],"2050-03":[1334123,875000,459123,156625000],"2050-04":[1380491,875000,505491,155750000],"2050-05":[1361452,875000,486452,154875000],"2050-06":[1374843,875000,499843,154000000],"2050-07":[1355986,875000,480986,153125000],"2050-08":[1369195,875000,494195,152250000],"2050-09":[1366371,875000,491371,151375000],"2050-10":[1347787,875000,472787,150500000],"2050-11":[1360723,875000,485723,149625000],"2050-12":[1342321,875000,467321,148750000],"2051-01":[1355075,875000,480075,147875000],"2051-02":[1352251,875000,477251,147000000],"2051-03":[1303515,875000,428515,146125000],"2051-04":[1346603,875000,471603,145250000],"2051-05":[1328657,875000,453657,144375000],"2051-06":[1340955,875000,465955,143500000],"2051-07":[1323191,875000,448191,142625000],"2051-08":[1335307,875000,460307,141750000],"2051-09":[1332483,875000,457483,140875000],"2051-10":[1314993,875000,439993,140000000],"2051-11":[1326835,875000,451835,139125000],"2051-12":[1309527,875000,434527,138250000],"2052-01":[1320125,875000,445125,137375000],"2052-02":[1317152,875000,442152,136500000],"2052-03":[1285991,875000,410991,135625000],"2052-04":[1311519,875000,436519,134750000],"2052-05":[1294713,875000,419713,133875000],"2052-06":[1305887,875000,430887,133000000],"2052-07":[1289262,875000,414262,132125000],"2052-08":[1300254,875000,425254,131250000],"2052-09":[1297438,875000,422438,130375000],"2052-10":[1281086,875000,406086,129500000],"2052-11":[1291806,875000,416806,128625000],"2052-12":[1275635,875000,400635,127750000],"2053-01":[1287154,875000,412154,126875000],"2053-02":[1284476,875000,409476,126000000],"2053-03":[1242298,875000,367298,125125000],"2053-04":[1278828,875000,403828,124250000],"2053-05":[1263068,875000,388068,123375000],"2053-06":[1273180,875000,398180,122500000],"2053-07":[1257602,875000,382602,121625000],"2053-08":[1267532,875000,392532,120750000],"2053-09":[1264708,875000,389708,119875000],"2053-10":[1249404,875000,374404,119000000],"2053-11":[1259060,875000,384060,118125000],"2053-12":[1243938,875000,368938,117250000],"2054-01":[1253412,875000,378412,116375000],"2054-02":[1250588,875000,375588,115500000],"2054-03":[1211690,875000,336690,114625000],"2054-04":[1244940,875000,369940,113750000],"2054-05":[1230273,875000,355273,112875000],"2054-06":[1239292,875000,364292,112000000],"2054-07":[1224808,875000,349808,111125000],"2054-08":[1233644,875000,358644,110250000],"2054-09":[1230820,875000,355820,109375000],"2054-10":[1216609,875000,341609,108500000],"2054-11":[1225172,875000,350172,107625000],"2054-12":[1211143,875000,336143,106750000],"2055-01":[1219524,875000,344524,105875000],"2055-02":[1216700,875000,341700,105000000],"2055-03":[1181082,875000,306082,104125000],"2055-04":[1211052,875000,336052,103250000],"2055-05":[1197479,875000,322479,102375000],"2055-06":[1205404,875000,330404,101500000],"2055-07":[1192013,875000,317013,100625000],"2055-08":[1199756,875000,324756,99750000],"2055-09":[1196932,875000,321932,98875000],"2055-10":[1183815,875000,308815,98000000],"2055-11":[1191284,875000,316284,97125000],"2055-12":[1178349,875000,303349,96250000],"2056-01":[1184897,875000,309897,95375000],"2056-02":[1181971,875000,306971,94500000],"2056-03":[1159532,875000,284532,93625000],"2056-04":[1176339,875000,301339,92750000],"2056-05":[1163893,875000,288893,91875000],"2056-06":[1170706,875000,295706,91000000],"2056-07":[1158442,875000,283442,90125000],"2056-08":[1165074,875000,290074,89250000],"2056-09":[1162258,875000,287258,88375000],"2056-10":[1150266,875000,275266,87500000],"2056-11":[1156625,875000,281625,86625000],"2056-12":[1144815,875000,269815,85750000],"2057-01":[1151651,875000,276651,84875000],"2057-02":[1148925,875000,273925,84000000],"2057-03":[1119865,875000,244865,83125000],"2057-04":[1143277,875000,268277,82250000],"2057-05":[1131890,875000,256890,81375000],"2057-06":[1137629,875000,262629,80500000],"2057-07":[1126424,875000,251424,79625000],"2057-08":[1131981,875000,256981,78750000],"2057-09":[1129157,875000,254157,77875000],"2057-10":[1118226,875000,243226,77000000],"2057-11":[1123509,875000,248509,76125000],"2057-12":[1112760,875000,237760,75250000],"2058-01":[1117861,875000,242861,74375000],"2058-02":[1115037,875000,240037,73500000],"2058-03":[1089257,875000,214257,72625000],"2058-04":[1109389,875000,234389,71750000],"2058-05":[1099095,875000,224095,70875000],"2058-06":[1103741,875000,228741,70000000],"2058-07":[1093630,875000,218630,69125000],"2058-08":[1098093,875000,223093,68250000],"2058-09":[1095269,875000,220269,67375000],"2058-10":[1085431,875000,210431,66500000],"2058-11":[1089621,875000,214621,65625000],"2058-12":[1079965,875000,204965,64750000],"2059-01":[1083973,875000,208973,63875000],"2059-02":[1081150,875000,206150,63000000],"2059-03":[1058649,875000,183649,62125000],"2059-04":[1075502,875000,200502,61250000],"2059-05":[1066301,875000,191301,60375000],"2059-06":[1069854,875000,194854,59500000],"2059-07":[1060835,875000,185835,58625000],"2059-08":[1064206,875000,189206,57750000],"2059-09":[1061382,875000,186382,56875000],"2059-10":[1052636,875000,177636,56000000],"2059-11":[1055734,875000,180734,55125000],"2059-12":[1047171,875000,172171,54250000],"2060-01":[1049668,875000,174668,53375000],"2060-02":[1046791,875000,171791,52500000],"2060-03":[1033073,875000,158073,51625000],"2060-04":[1041159,875000,166159,50750000],"2060-05":[1033073,875000,158073,49875000],"2060-06":[1035526,875000,160526,49000000],"2060-07":[1027622,875000,152622,48125000],"2060-08":[1029894,875000,154894,47250000],"2060-09":[1027077,875000,152077,46375000],"2060-10":[1019446,875000,144446,45500000],"2060-11":[1021445,875000,146445,44625000],"2060-12":[1013995,875000,138995,43750000],"2061-01":[1016148,875000,141148,42875000],"2061-02":[1013374,875000,138374,42000000],"2061-03":[997432,875000,122432,41125000],"2061-04":[1007726,875000,132726,40250000],"2061-05":[1000712,875000,125712,39375000],"2061-06":[1002078,875000,127078,38500000],"2061-07":[995246,875000,120246,37625000],"2061-08":[996430,875000,121430,36750000],"2061-09":[993606,875000,118606,35875000],"2061-10":[987047,875000,112047,35000000],"2061-11":[987958,875000,112958,34125000],"2061-12":[981582,875000,106582,33250000],"2062-01":[982310,875000,107310,32375000],"2062-02":[979486,875000,104486,31500000],"2062-03":[966824,875000,91824,30625000],"2062-04":[973839,875000,98839,29750000],"2062-05":[967917,875000,92917,28875000],"2062-06":[968191,875000,93191,28000000],"2062-07":[962452,875000,87452,27125000],"2062-08":[962543,875000,87543,26250000],"2062-09":[959719,875000,84719,25375000],"2062-10":[954253,875000,79253,24500000],"2062-11":[954071,875000,79071,23625000],"2062-12":[948787,875000,73787,22750000],"2063-01":[948423,875000,73423,21875000],"2063-02":[945599,875000,70599,21000000],"2063-03":[936216,875000,61216,20125000],"2063-04":[939951,875000,64951,19250000],"2063-05":[935123,875000,60123,18375000],"2063-06":[934303,875000,59303,17500000],"2063-07":[929657,875000,54657,16625000],"2063-08":[928655,875000,53655,15750000],"2063-09":[925831,875000,50831,14875000],"2063-10":[921458,875000,46458,14000000],"2063-11":[920183,875000,45183,13125000],"2063-12":[915993,875000,40993,12250000],"2064-01":[914441,875000,39441,11375000],"2064-02":[911611,875000,36611,10500000],"2064-03":[906614,875000,31614,9625000],"2064-04":[905978,875000,30978,8750000],"2064-05":[902254,875000,27254,7875000],"2064-06":[900346,875000,25346,7000000],"2064-07":[896803,875000,21803,6125000],"2064-08":[894713,875000,19713,5250000],"2064-09":[891897,875000,16897,4375000],"2064-10":[888627,875000,13627,3500000],"2064-11":[886265,875000,11265,2625000],"2064-12":[883176,875000,8176,1750000],"2065-01":[880645,875000,5645,875000],"2065-02":[877823,875000,2823,0]}};
+const STORE_KEY = 'budget_planner_v3';
+
+function freshState(){
+  return { months: structuredClone(SEED_MONTHS), loans: [], fixed: {} };
+}
+
+let STATE;
+try{
+  const saved=localStorage.getItem(STORE_KEY);
+  if(saved){ STATE=JSON.parse(saved); }
+  else{
+    // 이전 버전(v2/v1)에서 승계
+    const v2=localStorage.getItem('budget_planner_v2');
+    const v1=localStorage.getItem('budget_planner_v1');
+    STATE=freshState();
+    if(v2){ try{ const o=JSON.parse(v2); STATE.months=o.months||STATE.months; STATE.loans=o.loans||[]; STATE.fixed=o.fixed||{}; }catch(e){} }
+    else if(v1){ try{ STATE.months=JSON.parse(v1); }catch(e){} }
+  }
+}catch(e){ STATE=freshState(); }
+STATE.loans=STATE.loans||[]; STATE.fixed=STATE.fixed||{}; STATE.months=STATE.months||structuredClone(SEED_MONTHS);
+
+const DATA=STATE.months;
+const SECTIONS=[
+  {key:'소득',cls:'c-income',label:'소득'},
+  {key:'고정지출비',cls:'c-fixed',label:'고정지출비'},
+  {key:'저축및투자',cls:'c-save',label:'저축·투자'},
+  {key:'용돈',cls:'c-spend',label:'용돈'},
+];
+let current=Object.keys(DATA)[Object.keys(DATA).length-1];
+let view='monthly';
+
+const won=n=>(n==null?'–':Math.round(n).toLocaleString('ko-KR')+'원');
+const disp=m=>m.replace('26년','26.').replace(/\s+/g,' ').replace('(예상)',' (예상)').trim();
+// 월 키에서 연도(예: '26')와 월만(예: '1월') 뽑아내기
+const yearOf=m=>{ const y=m.match(/(\d{2})년/); return y?y[1]:''; };
+const monthShort=m=>{ const mm=m.match(/(\d{1,2})\s*월/); return mm? String(parseInt(mm[1],10))+'월' : disp(m).replace(/ ?\(예상\)/,''); };
+const sectionTotal=sec=>(sec.items||[]).reduce((a,[,v])=>a+(Number(v)||0),0);
+
+/* ===== 대출 → 월별 고정지출 자동 반영 ===== */
+const LOAN_ITEM_NAME='대출 원리금(자동)';
+// 월 키 -> 'YYYY-MM' (연도 두 자리는 20xx로 가정)
+function ymOf(monthKey){
+  const y=monthKey.match(/(\d{2})년/); const mo=monthKey.match(/(\d{1,2})\s*월/);
+  if(!y||!mo) return null;
+  const yyyy=2000+parseInt(y[1],10);
+  const mm=String(parseInt(mo[1],10)).padStart(2,'0');
+  return yyyy+'-'+mm;
+}
+// 월 라벨 정규화: "26년 09월","26.09월","26.9월" -> "26.9월"
+function normMonthLabel(s){
+  if(s==null) return '';
+  const str=String(s);
+  const y=str.match(/(\d{2})\s*(?:년|\.)/) || str.match(/(\d{2})/);
+  const mo=str.match(/(\d{1,2})\s*월/);
+  if(!mo) return str;
+  return (y?y[1]:'')+'.'+parseInt(mo[1],10)+'월';
+}
+// 해당 월의 스케줄 원리금(없으면 null)
+function loanRowFor(monthKey){
+  const ym=ymOf(monthKey); if(!ym) return null;
+  const row=LOAN_SCHEDULE.byMonth[ym];
+  return row? {ym, won:row[0], prin:row[1], int:row[2], bal:row[3]} : null;
+}
+// 이 달에 해당하는 수동 대출 납부액 목록: [{name, amount}]
+function manualLoanItemsFor(monthKey){
+  const target=normMonthLabel(monthKey);
+  const out=[];
+  (STATE.loans||[]).forEach(ln=>{
+    (ln.pays||[]).forEach(([m,amt])=>{
+      if(amt!=null && normMonthLabel(m)===target){
+        out.push({name:(ln.name||'대출')+' 상환(자동)', amount:Number(amt)||0});
+      }
+    });
+  });
+  return out;
+}
+// 월별 고정지출비에 대출 자동 항목(스케줄+수동)을 반영
+function applyLoanToMonth(monthKey){
+  const d=DATA[monthKey]; if(!d||!d['고정지출비']) return;
+  let items=d['고정지출비'].items||(d['고정지출비'].items=[]);
+  // 1) 기존 자동항목 모두 제거 (매번 새로 계산해서 다시 넣음)
+  items=items.filter(it=>!(it[2]&&it[2].auto));
+  // 2) 예전 수기 '원리금' 항목 흡수(있으면 제거해서 중복 방지)
+  const legacyIdx=items.findIndex(it=>typeof it[0]==='string' && it[0].includes('원리금') && !(it[2]&&it[2].auto));
+  if(legacyIdx>=0) items.splice(legacyIdx,1);
+  // 3) 스케줄(주담대) 원리금
+  const autoRows=[];
+  const row=loanRowFor(monthKey);
+  if(row) autoRows.push([LOAN_ITEM_NAME, row.won, {auto:true, src:'schedule'}]);
+  // 4) 수동 대출 상환액
+  manualLoanItemsFor(monthKey).forEach(mi=> autoRows.push([mi.name, mi.amount, {auto:true, src:'loan'}]));
+  // 5) 반영: 자동항목은 목록 끝에 모아둔다
+  d['고정지출비'].items=items.concat(autoRows);
+}
+function applyLoanAllMonths(){ Object.keys(DATA).forEach(applyLoanToMonth); }
+
+function save(){
+  try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
+  pushToCloud();
+  flagSaved();
+}
+function flagSaved(){
+  const el=document.getElementById('saveState'); if(!el) return;
+  const t=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  if(fb.ready){ el.innerHTML='<b>✓ 동기화됨</b> · '+t; }
+  else if(fb.db){ el.innerHTML='<span style="color:var(--muted)">연결 중… (로컬 저장됨)</span>'; }
+  else{ el.innerHTML='<b>✓ 저장됨</b> · '+t+' <span style="color:var(--muted)">(로컬)</span>'; }
+}
+let saveDeb; function queueSave(){ clearTimeout(saveDeb); saveDeb=setTimeout(save,400); }
+
+/* ===== Firebase 동기화 ===== */
+function pushToCloud(){
+  if(!fb.ready||!fb.ref||fb.applyingRemote) return;
+  clearTimeout(fb.pushTimer);
+  fb.pushTimer=setTimeout(()=>{
+    fb.ref.set({ months:STATE.months, loans:STATE.loans, fixed:STATE.fixed, _updated:Date.now() })
+      .catch(err=>console.warn('클라우드 저장 실패:',err));
+  },500);
+}
+function startSync(){
+  if(!fb.db){ flagSaved(); return; }
+  // 로그인 없이 한 곳(budget/main)에 저장 — 내 모든 기기가 같은 데이터를 봄
+  fb.ref=fb.db.ref('budget/main');
+  // 최초 1회: 클라우드에 값이 있으면 그걸로, 없으면 지금 로컬 값을 올림
+  fb.ref.once('value').then(snap=>{
+    const remote=snap.val();
+    fb.ready=true;
+    if(remote && remote.months){ adoptRemote(remote); }
+    else{ pushToCloud(); } // 클라우드가 비어있음 → 현재 로컬 상태 업로드
+    flagSaved();
+    // 이후 실시간 반영(다른 기기에서 바뀌면 여기로 들어옴)
+    fb.ref.on('value',snap2=>{
+      const r=snap2.val(); if(!r||!r.months) return;
+      adoptRemote(r);
+    });
+  }).catch(err=>{ console.warn('클라우드 읽기 실패:',err); fb.ready=false; flagSaved(); });
+}
+// 원격 데이터를 화면에 반영 (입력 중 커서 방해 최소화)
+function adoptRemote(remote){
+  // 입력 중(포커스가 입력칸에 있음)이면 반영 미루기
+  const active=document.activeElement;
+  if(active && (active.tagName==='INPUT') && active.closest && active.closest('#cats,#loanList')){
+    clearTimeout(fb._retry); fb._retry=setTimeout(()=>adoptRemote(remote),1200); return;
+  }
+  fb.applyingRemote=true;
+  STATE.months=remote.months||{};
+  STATE.loans=remote.loans||[];
+  STATE.fixed=remote.fixed||{};
+  rebindData();
+  applyLoanAllMonths();
+  if(!DATA[current]) current=Object.keys(DATA)[Object.keys(DATA).length-1];
+  try{ localStorage.setItem(STORE_KEY,JSON.stringify(STATE)); }catch(e){}
+  if(view==='monthly') renderMonthly(); else renderLoan();
+  fb.applyingRemote=false;
+  flagSaved();
+}
+
+function isFixed(secKey,name){ const list=STATE.fixed[secKey]||[]; return !!name && list.some(([n])=>n===name); }
+function toggleFixed(secKey,name,amount){
+  if(!name){ alert('먼저 항목 이름을 입력해 주세요.'); return; }
+  STATE.fixed[secKey]=STATE.fixed[secKey]||[];
+  const i=STATE.fixed[secKey].findIndex(([n])=>n===name);
+  if(i>=0) STATE.fixed[secKey].splice(i,1);
+  else STATE.fixed[secKey].push([name,(Number(amount)||null)]);
+  save(); renderMonthly();
+}
+
+/* ===== 월별 계획 ===== */
+function buildTabs(){
+  const nav=document.getElementById('months'); nav.innerHTML='';
+  const keys=Object.keys(DATA);
+  // 연도 라벨을 맨 앞에 한 번만 (모두 같은 해면 "26년", 여러 해면 생략)
+  const years=[...new Set(keys.map(yearOf).filter(Boolean))];
+  if(years.length===1){ const yl=document.createElement('span'); yl.className='yearlabel'; yl.textContent=years[0]+'년'; nav.appendChild(yl); }
+  const multiYear=years.length>1;
+  keys.forEach(m=>{
+    const b=document.createElement('button'); b.className='mtab'; b.setAttribute('role','tab'); b.setAttribute('aria-selected',m===current);
+    const t=document.createElement('span');
+    // 여러 해가 섞여 있으면 "26.4월"처럼, 아니면 "4월"만
+    t.textContent = multiYear ? (yearOf(m)+'.'+monthShort(m)) : monthShort(m);
+    b.appendChild(t);
+    if(m.includes('예상')){const e=document.createElement('span');e.className='est';e.textContent='예상';b.appendChild(e);}
+    const del=document.createElement('button'); del.className='del'; del.textContent='×'; del.title='이 달 삭제'; del.setAttribute('aria-label',monthShort(m)+' 삭제');
+    del.onclick=(ev)=>{ev.stopPropagation();removeMonth(m);}; b.appendChild(del);
+    b.onclick=()=>{current=m;renderMonthly();};
+    nav.appendChild(b);
+  });
+  const add=document.createElement('button'); add.className='mtab add'; add.textContent='+ 달 추가'; add.title='새 달 추가'; add.onclick=addMonth;
+  nav.appendChild(add);
+}
+function addMonth(){
+  const name=prompt('새 달 이름을 입력하세요 (예: 26년08월)'); if(!name) return;
+  if(DATA[name]){ alert('이미 있는 달이에요.'); return; }
+  const blank={};
+  SECTIONS.forEach(s=>{
+    const fx=(STATE.fixed[s.key]||[]).map(([n,a])=>[n,a==null?null:a]);
+    blank[s.key]={items: fx.length?fx:[['',null]]};
+  });
+  DATA[name]=blank; applyLoanToMonth(name); current=name; save(); renderMonthly();
+}
+function removeMonth(m){
+  if(Object.keys(DATA).length<=1){ alert('마지막 한 달은 지울 수 없어요.'); return; }
+  if(!confirm(`'${disp(m)}' 달을 삭제할까요?`)) return;
+  delete DATA[m]; if(current===m) current=Object.keys(DATA)[Object.keys(DATA).length-1];
+  save(); renderMonthly();
+}
+function renderMonthly(){
+  buildTabs();
+  const d=DATA[current]; const totals={}; SECTIONS.forEach(s=>totals[s.key]=sectionTotal(d[s.key]));
+  paintHero(totals); paintCats(d,totals); drawChart();
+}
+function paintHero(totals){
+  const income=totals['소득'],fixed=totals['고정지출비'],save_=totals['저축및투자'],spend=totals['용돈'];
+  const avail=income-fixed-save_, leftover=avail-spend;
+  const big=document.getElementById('availBig'); big.classList.toggle('neg',avail<0);
+  big.innerHTML=(avail<0?'-':'')+Math.abs(Math.round(avail)).toLocaleString('ko-KR')+'<span class="won">원</span>';
+  document.getElementById('flow').innerHTML=`
+    ${flowRow('소득','var(--income)',income)}
+    ${flowRow('− 고정지출비','var(--fixed)',fixed)}
+    ${flowRow('− 저축·투자','var(--save)',save_)}
+    ${flowRow('− 용돈','var(--spend)',spend)}
+    <div class="flowrow eq"><span class="k">남은 돈</span><span class="v" style="${leftover<0?'color:var(--fixed)':''}">${won(leftover)}</span></div>`;
+}
+function flowRow(k,color,v){ return `<div class="flowrow"><span class="k"><span class="dot" style="background:${color}"></span>${k}</span><span class="v">${won(v)}</span></div>`; }
+function paintCats(d,totals){
+  const cats=document.getElementById('cats'); cats.innerHTML='';
+  SECTIONS.forEach(s=>{
+    const sec=d[s.key];
+    const el=document.createElement('article'); el.className='cat '+s.cls;
+    el.innerHTML=`<h3><span class="tag"></span>${s.label}</h3>
+      <div class="sum">${won(totals[s.key])}<small>합계 · 자동 계산</small></div>
+      <div class="rows"></div>
+      <button class="addrow">+ 항목 추가</button>`;
+    const rowsEl=el.querySelector('.rows');
+    // 렌더 순서: 원본 배열의 idx는 유지하되, 표시 순서만 (고정 → 일반 → 자동)
+    const order=(sec.items||[]).map((item,idx)=>({item,idx}));
+    order.sort((a,b)=>rankOf(s.key,a.item)-rankOf(s.key,b.item));
+    order.forEach(({item,idx})=>rowsEl.appendChild(makeRow(s.key,item,idx)));
+    el.querySelector('.addrow').onclick=()=>{ sec.items.push(['',null]); save(); renderMonthly(); focusLastRow(s.key); };
+    cats.appendChild(el);
+  });
+}
+// 표시 우선순위: 자동잠금(0) < 고정(1) < 일반(2). 같은 그룹 안에서는 배열 순서 유지(안정 정렬)
+function rankOf(secKey,item){
+  if(item[2]&&item[2].auto) return 0;
+  if(isFixed(secKey,item[0])) return 1;
+  return 2;
+}
+function makeRow(secKey,item,idx){
+  const meta=item[2]||null;
+  const row=document.createElement('div'); row.className='row'; row.dataset.sec=secKey;
+  // 대출 스케줄 자동 항목: 잠금(수정 불가)
+  if(meta&&meta.auto){
+    row.classList.add('auto');
+    const lock=document.createElement('span'); lock.className='lock'; lock.textContent='🔒'; lock.title='대출 상환 스케줄에서 자동 계산되는 금액이에요. 대출 관리 탭에서 관리됩니다.';
+    const nm=document.createElement('span'); nm.className='nm autonm'; nm.textContent=item[0];
+    const am=document.createElement('span'); am.className='am autoam'; am.textContent=item[1]==null?'—':Number(item[1]).toLocaleString('ko-KR');
+    row.append(lock,nm,am);
+    return row;
+  }
+  const handle=document.createElement('span'); handle.className='drag'; handle.textContent='⠿'; handle.title='끌어서 순서 변경';
+  const pin=document.createElement('button'); pin.className='pin'+(isFixed(secKey,item[0])?' on':''); pin.textContent='📌';
+  pin.title=isFixed(secKey,item[0])?'고정 항목 해제':'고정 항목으로 지정 (매월 자동 입력)';
+  pin.onclick=()=>toggleFixed(secKey,DATA[current][secKey].items[idx][0],DATA[current][secKey].items[idx][1]);
+  const nm=document.createElement('input'); nm.className='nm'; nm.value=item[0]||''; nm.placeholder='항목명'; nm.setAttribute('aria-label','항목명');
+  nm.oninput=()=>{ DATA[current][secKey].items[idx][0]=nm.value; pin.classList.toggle('on',isFixed(secKey,nm.value)); queueSave(); };
+  const am=document.createElement('input'); am.className='am'; am.inputMode='numeric';
+  am.value=item[1]==null?'':Number(item[1]).toLocaleString('ko-KR'); am.placeholder='금액'; am.setAttribute('aria-label','금액');
+  am.onfocus=()=>{ const raw=DATA[current][secKey].items[idx][1]; am.value=raw==null?'':raw; am.select&&am.select(); };
+  am.oninput=()=>{ const v=am.value.replace(/[^0-9.-]/g,''); DATA[current][secKey].items[idx][1]=v===''?null:Number(v); liveTotals(); queueSave(); };
+  am.onblur=()=>{ const raw=DATA[current][secKey].items[idx][1]; am.value=raw==null?'':Number(raw).toLocaleString('ko-KR'); };
+  const rm=document.createElement('button'); rm.className='rm'; rm.textContent='×'; rm.title='삭제';
+  rm.onclick=()=>{ DATA[current][secKey].items.splice(idx,1); save(); renderMonthly(); };
+  row.dataset.idx=idx;
+  // 부드러운 드래그 (마우스/터치 공통): 손잡이를 누르고 끌면 행이 따라오고 나머지가 자리를 내줌
+  handle.addEventListener('pointerdown',e=>startDrag(e,row,secKey,idx));
+  row.append(handle,pin,nm,am,rm);
+  return row;
+}
+
+/* ===== 부드러운 순서변경 드래그 ===== */
+let drag=null;
+function startDrag(e,row,secKey,fromIdx){
+  e.preventDefault();
+  const rowsEl=row.parentNode;
+  // 같은 카테고리의 '이동 가능한' 행만 대상(자동 잠금행 제외)
+  const siblings=[...rowsEl.querySelectorAll('.row:not(.auto)')];
+  const others=siblings.filter(r=>r!==row);
+  const startRect=row.getBoundingClientRect();
+  const rowH=startRect.height + 3; // gap 포함
+  // 다른 행들의 '원래' 중앙 y좌표를 미리 저장(변형 전 기준)
+  const mids=others.map(r=>{ const b=r.getBoundingClientRect(); return b.top + b.height/2; });
+  drag={secKey,fromIdx,row,rowsEl,others,mids,rowH,
+        startY:e.clientY, placeholderIndex:others.length};
+  // 시작 위치의 placeholderIndex 계산
+  drag.placeholderIndex=siblings.indexOf(row);
+  try{ if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId); }catch(_){}
+  row.classList.add('grabbing');
+  row.style.width=startRect.width+'px';
+  row.style.position='relative';
+  row.style.zIndex='5';
+  document.body.classList.add('dragging-active');
+  window.addEventListener('pointermove',onDragMove);
+  window.addEventListener('pointerup',endDrag,{once:true});
+  window.addEventListener('pointercancel',endDrag,{once:true});
+}
+function onDragMove(e){
+  if(!drag) return;
+  const dy=e.clientY-drag.startY;
+  drag.row.style.transform=`translateY(${dy}px)`;
+  // 저장해둔 원래 중앙 좌표로 삽입 위치 계산
+  let newIndex=drag.mids.length;
+  for(let i=0;i<drag.mids.length;i++){
+    if(e.clientY < drag.mids[i]){ newIndex=i; break; }
+  }
+  if(newIndex!==drag.placeholderIndex){ drag.placeholderIndex=newIndex; }
+  applyShift(drag.others, drag.placeholderIndex);
+}
+// 잡은 행이 놓일 자리를 비우기 위해 다른 행들을 아래로 살짝 이동
+function applyShift(others, insertAt){
+  others.forEach((r,i)=>{
+    r.style.transition='transform .18s cubic-bezier(.2,.7,.3,1)';
+    r.style.transform = (i>=insertAt) ? `translateY(${drag.rowH}px)` : 'translateY(0px)';
+  });
+}
+function endDrag(e){
+  if(!drag) return;
+  const {secKey,fromIdx,row,others,placeholderIndex}=drag;
+  const orderedIdx=others.map(r=>+r.dataset.idx);
+  orderedIdx.splice(placeholderIndex,0,fromIdx); // 놓인 자리에 삽입
+  window.removeEventListener('pointermove',onDragMove);
+  others.forEach(r=>{ r.style.transition=''; r.style.transform=''; });
+  row.classList.remove('grabbing');
+  row.style.transform=''; row.style.position=''; row.style.zIndex=''; row.style.width='';
+  document.body.classList.remove('dragging-active');
+  drag=null;
+  reorderByDisplay(secKey, orderedIdx);
+}
+// 표시 순서(배열 인덱스 나열)대로 실제 items 배열을 재배열
+function reorderByDisplay(secKey, orderedIdx){
+  const arr=DATA[current][secKey].items;
+  const movable=new Set(orderedIdx);
+  const rest=arr.map((_,i)=>i).filter(i=>!movable.has(i));
+  const newArr=[...orderedIdx.map(i=>arr[i]), ...rest.map(i=>arr[i])];
+  DATA[current][secKey].items=newArr;
+  save(); renderMonthly();
+}
+function focusLastRow(secKey){ const rows=document.querySelectorAll(`.row[data-sec="${CSS.escape(secKey)}"]`); const last=rows[rows.length-1]; if(last) last.querySelector('.nm').focus(); }
+function liveTotals(){
+  const d=DATA[current]; const totals={}; SECTIONS.forEach(s=>totals[s.key]=sectionTotal(d[s.key]));
+  const cards=document.querySelectorAll('#cats .cat');
+  SECTIONS.forEach((s,i)=>{ const sumEl=cards[i]?.querySelector('.sum'); if(sumEl) sumEl.innerHTML=`${won(totals[s.key])}<small>합계 · 자동 계산</small>`; });
+  paintHero(totals); drawChart();
+}
+function drawChart(){
+  const svg=document.getElementById('chart'); if(!svg) return;
+  const months=Object.keys(DATA);
+  const W=900,H=230,padL=8,padR=8,padT=16,padB=34;
+  const tot=(m,k)=>sectionTotal(DATA[m][k]);
+  const series={ income:months.map(m=>tot(m,'소득')), fixed:months.map(m=>tot(m,'고정지출비')), save:months.map(m=>tot(m,'저축및투자')), avail:months.map(m=>tot(m,'소득')-tot(m,'고정지출비')-tot(m,'저축및투자')) };
+  const all=[...series.income,...series.fixed,...series.save,...series.avail];
+  const max=Math.max(...all,1),min=Math.min(...all,0),n=months.length;
+  const x=i=>padL+(W-padL-padR)*(n===1?0.5:i/(n-1));
+  const y=v=>padT+(H-padT-padB)*(1-(v-min)/(max-min||1));
+  const line=(arr,color,w)=>{const dpath=arr.map((v,i)=>`${i?'L':'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');const dots=arr.map((v,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${color==='#1c2321'?3.5:2.6}" fill="${color}"/>`).join('');return `<path d="${dpath}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;};
+  const zeroY=(min<0)?y(0):null;
+  const labels=months.map((m,i)=>`<text x="${x(i)}" y="${H-12}" text-anchor="middle" font-size="12" fill="#6e6b60" font-family="IBM Plex Sans KR">${disp(m).replace('26. ','').replace(/ ?\(예상\)/,'')}</text>`).join('');
+  const ci=months.indexOf(current);
+  const hi=ci>=0?`<line x1="${x(ci)}" y1="${padT-6}" x2="${x(ci)}" y2="${H-padB}" stroke="#1c2321" stroke-width="1" stroke-dasharray="2 4" opacity=".35"/>`:'';
+  svg.innerHTML=(zeroY!=null?`<line x1="${padL}" y1="${zeroY}" x2="${W-padR}" y2="${zeroY}" stroke="#d8d1bd"/>`:'')+hi+line(series.income,'#2f6d5b',2.5)+line(series.fixed,'#b1573a',2.5)+line(series.save,'#3a5a8c',2)+line(series.avail,'#1c2321',2.8)+labels;
+}
+
+/* ===== 대출 관리 ===== */
+const loanPaid=ln=>(ln.pays||[]).reduce((a,[,v])=>a+(Number(v)||0),0);
+
+// 스케줄 대출의 현재 진행 상황(오늘 기준 지난 회차까지 상환한 것으로 간주)
+function scheduleLoanStatus(){
+  const m=LOAN_SCHEDULE.meta;
+  const now=new Date();
+  const curYM=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const entries=Object.entries(LOAN_SCHEDULE.byMonth); // 정렬된 상태로 임베드됨
+  let paidPrincipal=0, paidCount=0, remain=m.principal, lastPaidYM=null;
+  for(const [ym,row] of entries){
+    if(ym<=curYM){ paidPrincipal+=row[1]; paidCount++; remain=row[3]; lastPaidYM=ym; }
+    else break;
+  }
+  return {principal:m.principal, term:m.termMonths, paidCount, remain, paidPrincipal, curYM, lastPaidYM,
+          start:m.start, end:m.end, totalInterest:m.totalInterest};
+}
+function renderScheduleLoanCard(){
+  const st=scheduleLoanStatus();
+  const pct=st.principal>0? (st.principal-st.remain)/st.principal*100 : 0;
+  const card=document.createElement('div'); card.className='loan sched';
+  // 다가오는 6개월 미리보기
+  const entries=Object.entries(LOAN_SCHEDULE.byMonth);
+  let startIdx=entries.findIndex(([ym])=>ym>st.curYM); if(startIdx<0) startIdx=entries.length;
+  const upcoming=entries.slice(Math.max(0,startIdx-1), startIdx+5);
+  const rowsHtml=upcoming.map(([ym,r])=>{
+    const isNow=ym<=st.curYM && (entries[startIdx-1]&&entries[startIdx-1][0]===ym);
+    return `<tr class="${isNow?'now':''}"><td>${ym.replace('-','.')}</td><td class="num">${r[0].toLocaleString('ko-KR')}</td><td class="num dim">${r[1].toLocaleString('ko-KR')}</td><td class="num dim">${r[2].toLocaleString('ko-KR')}</td><td class="num">${r[3].toLocaleString('ko-KR')}</td></tr>`;
+  }).join('');
+  card.innerHTML=`
+    <div class="lhead">
+      <div class="lname" style="display:flex;align-items:center;gap:8px">주택담보대출 <span class="schbadge">스케줄 연동</span></div>
+      <div class="principal" style="border:none">원금 <b style="color:var(--ink);font-size:15px;margin-left:4px">${st.principal.toLocaleString('ko-KR')}원</b></div>
+    </div>
+    <div class="lbar"><i style="width:${pct}%"></i></div>
+    <div class="lmeta"><span>${st.paidCount}회차 상환 · ${pct.toFixed(1)}% · 총 ${st.term}회 (${st.start.replace('-','.')}~${st.end.replace('-','.')})</span><span style="color:var(--loan);font-weight:600">남은 원금 ${st.remain.toLocaleString('ko-KR')}원</span></div>
+    <div class="pays">
+      <div class="ptitle">상환 스케줄 (이번 달 부근)</div>
+      <table class="schtable"><thead><tr><th>월</th><th class="num">원리금</th><th class="num">원금</th><th class="num">이자</th><th class="num">상환후 잔액</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+      <div class="schnote">이 대출의 <b>원리금</b>은 매달 월별 계획의 고정지출에 자동으로 반영됩니다. 값은 위 스케줄 기준이라 직접 수정할 수 없어요.</div>
+    </div>`;
+  return card;
+}
+function renderLoan(){
+  const list=document.getElementById('loanList'); list.innerHTML='';
+  // 스케줄 연동 대출을 항상 맨 위에
+  list.appendChild(renderScheduleLoanCard());
+  const st=scheduleLoanStatus();
+  let totalP=st.principal, totalPaid=st.principal-st.remain;
+  if(!STATE.loans.length){ const e=document.createElement('div'); e.className='loan-empty'; e.textContent='추가로 관리할 대출이 있으면 아래 “+ 대출 추가”를 눌러 등록하세요.'; list.appendChild(e); }
+  STATE.loans.forEach((ln,li)=>{
+    const principal=Number(ln.principal)||0, paid=loanPaid(ln), remain=principal-paid;
+    totalP+=principal; totalPaid+=paid;
+    const pct=principal>0?Math.min(100,Math.max(0,paid/principal*100)):0;
+    const card=document.createElement('div'); card.className='loan';
+    card.innerHTML=`
+      <div class="lhead">
+        <input class="lname" value="${escapeHtml(ln.name||'')}" placeholder="대출 이름 (예: 신용대출)" aria-label="대출 이름">
+        <div class="principal">원금 <input class="pInput" inputmode="numeric" value="${principal?principal.toLocaleString('ko-KR'):''}" placeholder="0" aria-label="대출 원금"></div>
+        <button class="lremove" title="대출 삭제">×</button>
+      </div>
+      <div class="lbar"><i style="width:${pct}%"></i></div>
+      <div class="lmeta"><span>갚은 금액 ${won(paid)} · ${pct.toFixed(0)}%</span><span style="color:var(--loan);font-weight:600">남은 금액 ${won(remain)}</span></div>
+      <div class="pays"><div class="ptitle">월별 납부 내역</div><div class="paylist"></div><button class="addpay">+ 납부 추가</button></div>`;
+    card.querySelector('.lname').oninput=e=>{ ln.name=e.target.value; applyLoanAllMonths(); queueSave(); };
+    const pIn=card.querySelector('.pInput');
+    pIn.onfocus=()=>{ pIn.value=ln.principal||''; };
+    pIn.oninput=()=>{ const v=pIn.value.replace(/[^0-9.]/g,''); ln.principal=v===''?0:Number(v); liveLoanTotals(); refreshLoanCardMeta(card,ln); queueSave(); };
+    pIn.onblur=()=>{ pIn.value=ln.principal?Number(ln.principal).toLocaleString('ko-KR'):''; };
+    card.querySelector('.lremove').onclick=()=>{ if(confirm(`'${ln.name||'이 대출'}'을 삭제할까요?`)){ STATE.loans.splice(li,1); applyLoanAllMonths(); save(); renderLoan(); } };
+    const pl=card.querySelector('.paylist');
+    (ln.pays||[]).forEach((p,pi)=>pl.appendChild(makePayRow(ln,p,pi,card)));
+    card.querySelector('.addpay').onclick=()=>{ ln.pays=ln.pays||[]; const last=Object.keys(DATA)[Object.keys(DATA).length-1]; ln.pays.push([disp(last).replace(/ ?\(예상\)/,''),null]); save(); renderLoan(); };
+    list.appendChild(card);
+  });
+  setStat('lTotal',totalP); setStat('lPaid',totalPaid); setStat('lRemain',totalP-totalPaid);
+}
+function makePayRow(ln,p,pi,card){
+  const row=document.createElement('div'); row.className='payrow';
+  const mm=document.createElement('input'); mm.className='pm'; mm.value=p[0]||''; mm.placeholder='예: 26.08 또는 8월'; mm.setAttribute('aria-label','납부 월');
+  mm.oninput=()=>{ ln.pays[pi][0]=mm.value; applyLoanAllMonths(); queueSave(); };
+  const pa=document.createElement('input'); pa.className='pa'; pa.inputMode='numeric'; pa.value=p[1]==null?'':Number(p[1]).toLocaleString('ko-KR'); pa.placeholder='납부액'; pa.setAttribute('aria-label','납부 금액');
+  pa.onfocus=()=>{ pa.value=ln.pays[pi][1]==null?'':ln.pays[pi][1]; pa.select&&pa.select(); };
+  pa.oninput=()=>{ const v=pa.value.replace(/[^0-9.]/g,''); ln.pays[pi][1]=v===''?null:Number(v); liveLoanTotals(); refreshLoanCardMeta(card,ln); applyLoanAllMonths(); queueSave(); };
+  pa.onblur=()=>{ pa.value=ln.pays[pi][1]==null?'':Number(ln.pays[pi][1]).toLocaleString('ko-KR'); };
+  const rm=document.createElement('button'); rm.className='prm'; rm.textContent='×'; rm.title='삭제';
+  rm.onclick=()=>{ ln.pays.splice(pi,1); applyLoanAllMonths(); save(); renderLoan(); };
+  row.append(mm,pa,rm); return row;
+}
+function refreshLoanCardMeta(card,ln){
+  const principal=Number(ln.principal)||0, paid=loanPaid(ln), remain=principal-paid;
+  const pct=principal>0?Math.min(100,Math.max(0,paid/principal*100)):0;
+  card.querySelector('.lbar>i').style.width=pct+'%';
+  const meta=card.querySelector('.lmeta');
+  meta.children[0].textContent=`갚은 금액 ${won(paid)} · ${pct.toFixed(0)}%`;
+  meta.children[1].textContent=`남은 금액 ${won(remain)}`;
+}
+function setStat(id,v){ document.getElementById(id).innerHTML=Math.round(v).toLocaleString('ko-KR')+'<span class="won">원</span>'; }
+function liveLoanTotals(){ const st=scheduleLoanStatus(); let tp=st.principal,tpaid=st.principal-st.remain; STATE.loans.forEach(ln=>{ tp+=Number(ln.principal)||0; tpaid+=loanPaid(ln); }); setStat('lTotal',tp); setStat('lPaid',tpaid); setStat('lRemain',tp-tpaid); }
+document.getElementById('addLoanBtn').onclick=()=>{ STATE.loans.push({name:'',principal:0,pays:[]}); save(); renderLoan(); };
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ===== 뷰 전환 ===== */
+function setView(v){
+  view=v;
+  document.getElementById('vMonthly').setAttribute('aria-selected',v==='monthly');
+  document.getElementById('vLoan').setAttribute('aria-selected',v==='loan');
+  document.getElementById('monthlyView').classList.toggle('hidden',v!=='monthly');
+  document.getElementById('loanView').classList.toggle('hidden',v!=='loan');
+  if(v==='monthly') renderMonthly(); else renderLoan();
+}
+document.getElementById('vMonthly').onclick=()=>setView('monthly');
+document.getElementById('vLoan').onclick=()=>setView('loan');
+
+/* ===== 도구 ===== */
+document.getElementById('exportBtn').onclick=()=>{
+  const blob=new Blob([JSON.stringify(STATE,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='가계부_백업_'+new Date().toISOString().slice(0,10)+'.json'; a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();
+document.getElementById('importFile').onchange=(e)=>{
+  const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=()=>{ try{
+    const obj=JSON.parse(r.result);
+    if(obj&&obj.months){ STATE=obj; }
+    else if(obj&&typeof obj==='object'){ STATE=freshState(); STATE.months=obj; }
+    else throw 0;
+    STATE.loans=STATE.loans||[]; STATE.fixed=STATE.fixed||{};
+    rebindData(); applyLoanAllMonths(); current=Object.keys(STATE.months)[Object.keys(STATE.months).length-1]; save(); setView(view);
+  }catch(err){ alert('불러올 수 없는 파일이에요. 이 대시보드에서 내보낸 백업 파일을 선택해 주세요.'); } };
+  r.readAsText(f); e.target.value='';
+};
+document.getElementById('resetBtn').onclick=()=>{
+  if(!confirm('처음 원본(가계부.xlsx) 값으로 되돌릴까요? 지금까지 수정한 내용과 대출·고정항목이 모두 사라집니다.')) return;
+  STATE=freshState(); rebindData(); applyLoanAllMonths(); current=Object.keys(STATE.months)[Object.keys(STATE.months).length-1]; save(); setView('monthly');
+};
+function rebindData(){ for(const k of Object.keys(DATA)) delete DATA[k]; Object.assign(DATA,STATE.months); }
+
+/* ---------- 시작 ---------- */
+applyLoanAllMonths();
+setView('monthly');
+flagSaved();
+startSync();
+</script>
+</body>
+</html>

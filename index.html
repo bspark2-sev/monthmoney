@@ -234,12 +234,13 @@
   </div>
 
   <div class="toolbar">
+    <button class="btn" id="refreshBtn">↻ 최신 불러오기</button>
     <button class="btn" id="exportBtn">내보내기 (백업)</button>
     <button class="btn" id="importBtn">불러오기</button>
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v9</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v10</span></footer>
 </div>
 
 <script>
@@ -826,6 +827,16 @@ document.getElementById('vMonthly').onclick=()=>setView('monthly');
 document.getElementById('vLoan').onclick=()=>setView('loan');
 
 /* ===== 도구 ===== */
+document.getElementById('refreshBtn').onclick=()=>{
+  const btn=document.getElementById('refreshBtn');
+  if(!fb.ready||!fb.ref){ alert('아직 동기화 연결 전이에요. 잠시 후 다시 눌러주세요.'); return; }
+  btn.textContent='↻ 불러오는 중…';
+  fb.ref.once('value').then(snap=>{
+    const r=snap.val();
+    if(r&&r.months){ adoptRemote(r); }
+    btn.textContent='↻ 최신 불러오기';
+  }).catch(()=>{ btn.textContent='↻ 최신 불러오기'; alert('불러오기에 실패했어요.'); });
+};
 document.getElementById('exportBtn').onclick=()=>{
   const blob=new Blob([JSON.stringify(STATE,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);

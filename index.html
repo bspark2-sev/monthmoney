@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v20</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v21</span></footer>
 </div>
 
 <script>
@@ -405,26 +405,8 @@ function stripAuto(months){
   return out;
 }
 function cloudPayloadMonths(){ STATE.months=DATA; return stripAuto(DATA); }
-// ===== 진단용 화면 로그 (이 버전은 켜둠) =====
-function dbg(msg){
-  if(window.DEBUG_SYNC===false) return;
-  try{
-    let box=document.getElementById('dbgLog');
-    if(!box){
-      box=document.createElement('div'); box.id='dbgLog';
-      box.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;max-height:38vh;overflow:auto;background:#111c;color:#7fffa0;font:11px/1.45 monospace;padding:8px 10px;border-radius:8px;z-index:9999;white-space:pre-wrap;box-shadow:0 4px 20px #0006';
-      const btn=document.createElement('button'); btn.textContent='로그 지우기'; btn.style.cssText='position:absolute;top:4px;right:8px;font:11px monospace;background:#333;color:#fff;border:none;border-radius:5px;padding:2px 8px;cursor:pointer';
-      btn.onclick=()=>{ box.querySelector('.dbgbody').textContent=''; };
-      const body=document.createElement('div'); body.className='dbgbody';
-      box.appendChild(btn); box.appendChild(body);
-      document.body.appendChild(box);
-    }
-    const body=box.querySelector('.dbgbody');
-    const t=new Date().toLocaleTimeString('ko-KR',{hour12:false})+'.'+String(Date.now()%1000).padStart(3,'0');
-    body.textContent += '['+t+'] '+msg+'\n';
-    box.scrollTop=box.scrollHeight;
-  }catch(e){}
-}
+// ===== 진단용 화면 로그 (비활성화) =====
+function dbg(msg){ /* 진단 로그 비활성화됨 */ }
 // 이 기기 고유 ID (메아리 판별용)
 const CLIENT_ID = 'c'+Math.random().toString(36).slice(2,7);
 fb.recentWrites = fb.recentWrites || [];

@@ -240,7 +240,7 @@
     <button class="btn warn" id="resetBtn">처음 값으로 되돌리기</button>
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
-  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v19-진단2</span></footer>
+  <footer>개인용 가계부 · 계획 대시보드 · 데이터는 로그인한 본인 기기에 동기화됩니다 · <span id="appVer">v20</span></footer>
 </div>
 
 <script>
@@ -437,9 +437,19 @@ function pushToCloud(){
   fb.recentWrites.push(wid); if(fb.recentWrites.length>8) fb.recentWrites.shift();
   const now=Date.now();
   fb.lastSeenT=now; // 내 쓰기가 최신
-  const payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _writer:CLIENT_ID, _writeId:wid, _updated:now };
+  let payload={ months:cleanMonths, loans:STATE.loans, fixed:STATE.fixed, _writer:CLIENT_ID, _writeId:wid, _updated:now };
+  payload=sanitizeForFirebase(payload); // undefined → null (Firebase는 undefined 저장 불가)
   dbg('→ 클라우드 전송: 달수='+Object.keys(cleanMonths).length+' wid='+wid.slice(0,14));
   fb.ref.set(payload).then(()=>dbg('  전송 완료 ✓')).catch(err=>dbg('  전송 실패 ✗ '+err));
+}
+// Firebase는 undefined 값을 저장하지 못하므로 전송 직전에 전부 null로 치환한다.
+function sanitizeForFirebase(v){
+  if(v===undefined) return null;
+  if(v===null||typeof v!=='object') return v;
+  if(Array.isArray(v)) return v.map(sanitizeForFirebase);
+  const o={};
+  for(const k in v){ if(Object.prototype.hasOwnProperty.call(v,k)) o[k]=sanitizeForFirebase(v[k]); }
+  return o;
 }
 // 현재 화면 데이터와 원격 데이터가 (파생 제외) 같은지
 function sameAsCurrent(r){
